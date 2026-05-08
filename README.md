@@ -17,8 +17,8 @@ Minimal Event-JEPA pipeline for coherent MIMIC MEDS event streams.
 
 ```bash
 conda run -n torch python build_pretrain_data.py \
-  --meds_dir /path/to/coherent/mimic-2.2-meds/data \
-  --mimic_raw_dir /path/to/coherent/mimic-iv-2.2 \
+  --meds_dir data/raw/mimic-2.2-meds/data \
+  --mimic_raw_dir data/raw/mimic-iv-2.2 \
   --output_path data/pretrain/train.parquet \
   --seq_len 2048 \
   --num_workers 16
@@ -49,8 +49,8 @@ first later `ICU_DISCHARGE*`/`MEDS_DEATH` outcome is `MEDS_DEATH`.
 
 ```bash
 conda run -n torch python build_eval_data.py \
-  --meds_dir /path/to/coherent/mimic-2.2-meds/data \
-  --mimic_raw_dir /path/to/coherent/mimic-iv-2.2 \
+  --meds_dir data/raw/mimic-2.2-meds/data \
+  --mimic_raw_dir data/raw/mimic-iv-2.2 \
   --task icu_mortality \
   --output_dir data/eval \
   --seq_len 2048 \
