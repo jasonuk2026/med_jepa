@@ -20,8 +20,6 @@ import pyarrow.parquet as pq
 from transformers import AutoTokenizer
 
 from med_jepa_common import (
-    DEFAULT_MEDS_DIR,
-    DEFAULT_MIMIC_RAW_DIR,
     build_mimic_description_maps,
     format_event_text,
     normalize_optional_int,
@@ -229,8 +227,8 @@ def _schema() -> pa.Schema:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--meds_dir", type=Path, default=DEFAULT_MEDS_DIR)
-    parser.add_argument("--mimic_raw_dir", type=Path, default=DEFAULT_MIMIC_RAW_DIR)
+    parser.add_argument("--meds_dir", type=Path, required=True)
+    parser.add_argument("--mimic_raw_dir", type=Path, required=True)
     parser.add_argument("--task", choices=["icu_mortality", "hospital_mortality"], default="icu_mortality")
     parser.add_argument("--splits", nargs="+", default=["train", "test"])
     parser.add_argument("--model_name", default="Qwen/Qwen3-0.6B")

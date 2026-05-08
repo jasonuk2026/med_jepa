@@ -1,6 +1,6 @@
 # med_jepa
 
-Minimal Event-JEPA pipeline for MIMIC MEDS event streams.
+Minimal Event-JEPA pipeline for coherent EHR event-token data.
 
 ## Design notes
 
@@ -10,12 +10,15 @@ Minimal Event-JEPA pipeline for MIMIC MEDS event streams.
 - Training uses normal causal attention plus the 2D padding mask.
 - Flash attention 2/3 is supported through `--attn_implementation`.
 - Gradient checkpointing is intentionally not enabled.
+- Pretraining data extraction reads the EHR-local `patient_id/chunk_idx/event_token_ids` parquet.
+- Evaluation data extraction requires explicit coherent MEDS/raw-table paths.
 - Data extraction uses `multiprocessing` process pools, not threads.
 
 ## Build pretraining data
 
 ```bash
 conda run -n torch python build_pretrain_data.py \
+  --event_tokens_path /lus/lfs1aip2/scratch/u6dk/zduan.u6dk/codes/ehr/hx1/qwen3_0.6b_patient_events.parquet \
   --output_path data/pretrain/train.parquet \
   --seq_len 2048 \
   --num_workers 16
@@ -46,6 +49,8 @@ first later `ICU_DISCHARGE*`/`MEDS_DEATH` outcome is `MEDS_DEATH`.
 
 ```bash
 conda run -n torch python build_eval_data.py \
+  --meds_dir /path/to/coherent/mimic-2.2-meds/data \
+  --mimic_raw_dir /path/to/coherent/mimic-iv-2.2 \
   --task icu_mortality \
   --output_dir data/eval \
   --seq_len 2048 \

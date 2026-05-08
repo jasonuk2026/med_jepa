@@ -15,8 +15,9 @@ import pandas as pd
 import torch
 
 
-DEFAULT_MEDS_DIR = Path("/lus/lfs1aip2/scratch/u6dk/zduan.u6dk/codes/ethos-ares/mimic-3.1-meds/data")
-DEFAULT_MIMIC_RAW_DIR = Path("/lus/lfs1aip2/scratch/u6dk/zduan.u6dk/codes/march_alpha/data/mimic-iv-2.2")
+DEFAULT_EVENT_TOKENS_PATH = Path(
+    "/lus/lfs1aip2/scratch/u6dk/zduan.u6dk/codes/ehr/hx1/qwen3_0.6b_patient_events.parquet"
+)
 @dataclass(frozen=True)
 class EventRecord:
     subject_id: int
