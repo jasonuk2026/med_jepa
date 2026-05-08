@@ -15,9 +15,6 @@ import pandas as pd
 import torch
 
 
-DEFAULT_EVENT_TOKENS_PATH = Path(
-    "/lus/lfs1aip2/scratch/u6dk/zduan.u6dk/codes/ehr/hx1/qwen3_0.6b_patient_events.parquet"
-)
 @dataclass(frozen=True)
 class EventRecord:
     subject_id: int
