@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+
+data/
+experiments/
+*.parquet
+*.pt
+*.safetensors
+
+.DS_Store
