@@ -17,28 +17,28 @@ Minimal Event-JEPA pipeline for coherent MIMIC MEDS event streams.
 
 ```bash
 python build_pretrain_data.py \
-  --meds_dir data/raw/mimic-2.2-meds/data \
-  --mimic_raw_dir data/raw/mimic-iv-2.2 \
-  --output_path data/pretrain/train.parquet \
-  --seq_len 2048 \
-  --num_workers 16
+--meds_dir data/raw/mimic-2.2-meds/data \
+--mimic_raw_dir data/raw/mimic-iv-2.2 \
+--output_path data/pretrain/train.parquet \
+--seq_len 2048 \
+--num_workers 16
 ```
 
 ## Train JEPA
 
 ```bash
 torchrun --standalone --nproc_per_node=4 train_jepa.py \
-  --model_name Qwen/Qwen3-0.6B \
-  --train_parquet data/pretrain/train.parquet \
-  --output_dir experiments/qwen3_0p6b_event_jepa \
-  --attn_implementation flash_attention_3 \
-  --batch_size 4 \
-  --global_batch_size 256 \
-  --epochs 1 \
-  --lr 2e-5 \
-  --dtype bf16 \
-  --compile \
-  --save_every_epoch
+--model_name Qwen/Qwen3-0.6B \
+--train_parquet data/pretrain/train.parquet \
+--output_dir experiments/qwen3_0p6b_event_jepa \
+--attn_implementation flash_attention_3 \
+--batch_size 4 \
+--global_batch_size 256 \
+--epochs 1 \
+--lr 2e-5 \
+--dtype bf16 \
+--compile \
+--save_every_epoch
 ```
 
 ## Build evaluation data
@@ -49,26 +49,26 @@ first later `ICU_DISCHARGE*`/`MEDS_DEATH` outcome is `MEDS_DEATH`.
 
 ```bash
 python build_eval_data.py \
-  --meds_dir data/raw/mimic-2.2-meds/data \
-  --mimic_raw_dir data/raw/mimic-iv-2.2 \
-  --task icu_mortality \
-  --output_dir data/eval \
-  --seq_len 2048 \
-  --num_workers 16
+--meds_dir data/raw/mimic-2.2-meds/data \
+--mimic_raw_dir data/raw/mimic-iv-2.2 \
+--task icu_mortality \
+--output_dir data/eval \
+--seq_len 2048 \
+--num_workers 16
 ```
 
 ## Frozen classifier eval
 
 ```bash
 python eval_classifier.py \
-  --pretrained_dir experiments/qwen3_0p6b_event_jepa/final \
-  --eval_parquet_dir data/eval \
-  --task icu_mortality \
-  --output_dir experiments/classifier/icu_mortality \
-  --pooling mean_eot \
-  --attn_implementation flash_attention_3 \
-  --dtype bf16 \
-  --compile
+--pretrained_dir experiments/qwen3_0p6b_event_jepa/final \
+--eval_parquet_dir data/eval \
+--task icu_mortality \
+--output_dir experiments/classifier/icu_mortality \
+--pooling mean_eot \
+--attn_implementation flash_attention_3 \
+--dtype bf16 \
+--compile
 ```
 
 ## Smoke tests
