@@ -16,7 +16,7 @@ Minimal Event-JEPA pipeline for coherent MIMIC MEDS event streams.
 ## Build pretraining data
 
 ```bash
-conda run -n torch python build_pretrain_data.py \
+python build_pretrain_data.py \
   --meds_dir data/raw/mimic-2.2-meds/data \
   --mimic_raw_dir data/raw/mimic-iv-2.2 \
   --output_path data/pretrain/train.parquet \
@@ -48,7 +48,7 @@ Evaluation labels are generated from the MEDS timeline with ETHOS-style task log
 first later `ICU_DISCHARGE*`/`MEDS_DEATH` outcome is `MEDS_DEATH`.
 
 ```bash
-conda run -n torch python build_eval_data.py \
+python build_eval_data.py \
   --meds_dir data/raw/mimic-2.2-meds/data \
   --mimic_raw_dir data/raw/mimic-iv-2.2 \
   --task icu_mortality \
@@ -60,7 +60,7 @@ conda run -n torch python build_eval_data.py \
 ## Frozen classifier eval
 
 ```bash
-conda run -n torch python eval_classifier.py \
+python eval_classifier.py \
   --pretrained_dir experiments/qwen3_0p6b_event_jepa/final \
   --eval_parquet_dir data/eval \
   --task icu_mortality \
@@ -74,6 +74,6 @@ conda run -n torch python eval_classifier.py \
 ## Smoke tests
 
 ```bash
-conda run -n torch python -m py_compile med_jepa_common.py build_pretrain_data.py train_jepa.py build_eval_data.py eval_classifier.py smoke_test.py
-conda run -n torch python smoke_test.py
+python -m py_compile med_jepa_common.py build_pretrain_data.py train_jepa.py build_eval_data.py eval_classifier.py smoke_test.py
+python smoke_test.py
 ```
