@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import multiprocessing as mp
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -15,7 +16,8 @@ from transformers import AutoTokenizer
 
 from med_jepa_common import (
     build_mimic_description_maps,
-    dataframe_to_events,
+    format_event_text,
+    parse_meds_event,
     pack_events,
     shard_paths,
     write_json,
@@ -26,33 +28,63 @@ _DESC_MAPS: dict[str, dict[str, str]] | None = None
 _ARGS: argparse.Namespace | None = None
 
 
-def _init_worker(args_dict: dict[str, Any], desc_maps: dict[str, dict[str, str]]) -> None:
-    global _TOKENIZER, _DESC_MAPS, _ARGS
-    _ARGS = argparse.Namespace(**args_dict)
-    _DESC_MAPS = desc_maps
-    _TOKENIZER = AutoTokenizer.from_pretrained(_ARGS.model_name, trust_remote_code=True)
-    if _TOKENIZER.pad_token_id is None:
-        _TOKENIZER.pad_token = _TOKENIZER.eos_token
-
-
-def _process_shard(path: str) -> list[dict[str, Any]]:
+def _process_shard(item: tuple[int, str]) -> dict[str, Any]:
     assert _TOKENIZER is not None and _DESC_MAPS is not None and _ARGS is not None
-    df = pd.read_parquet(path)
+    shard_idx, path = item
+    output_path = Path(_ARGS.output_path)
+    parts_dir = output_path.with_name(f".{output_path.name}.parts")
+    part_path = parts_dir / f"part-{shard_idx:05d}.parquet"
+    print(f"start_shard={shard_idx} path={path} output={part_path}", flush=True)
+
+    read_columns = ["subject_id", "time", "code", "numeric_value", "text_value"]
+    df = pd.read_parquet(path, columns=read_columns)
     if _ARGS.max_rows_per_shard:
         df = df.head(_ARGS.max_rows_per_shard)
-    events = dataframe_to_events(df, _DESC_MAPS)
-    rows: list[dict[str, Any]] = []
-    by_subject: dict[int, list[list[int]]] = {}
-    for event in events:
-        token_ids = _TOKENIZER.encode(event.text, add_special_tokens=False)
-        token_ids.append(_TOKENIZER.eos_token_id)
-        by_subject.setdefault(event.subject_id, []).append(token_ids)
-    subject_ids = sorted(by_subject)
+    df = df.sort_values(["subject_id", "time", "code"], kind="mergesort")
+
+    selected_subjects: set[int] | None = None
     if _ARGS.max_patients_per_shard:
-        subject_ids = subject_ids[: _ARGS.max_patients_per_shard]
-    for subject_id in subject_ids:
-        rows.extend(pack_events(subject_id, by_subject[subject_id], _ARGS.seq_len, _TOKENIZER.pad_token_id))
-    return rows
+        selected_subjects = set(df["subject_id"].drop_duplicates().head(_ARGS.max_patients_per_shard).astype(int))
+
+    total_rows = 0
+    buffer: list[dict[str, Any]] = []
+
+    def write_subject(subject_id: int, subject_token_ids: list[list[int]], writer: pq.ParquetWriter) -> None:
+        nonlocal total_rows, buffer
+        buffer.extend(pack_events(subject_id, subject_token_ids, _ARGS.seq_len, _TOKENIZER.pad_token_id))
+        if len(buffer) >= _ARGS.flush_rows:
+            _write_rows(writer, buffer)
+            total_rows += len(buffer)
+            buffer.clear()
+
+    with pq.ParquetWriter(part_path, _schema(), compression="zstd") as writer:
+        current_subject_id: int | None = None
+        subject_token_ids: list[list[int]] = []
+        for row in df.itertuples(index=False):
+            subject_id = int(row.subject_id)
+            if selected_subjects is not None and subject_id not in selected_subjects:
+                continue
+            if current_subject_id is not None and subject_id != current_subject_id:
+                write_subject(current_subject_id, subject_token_ids, writer)
+                subject_token_ids = []
+            current_subject_id = subject_id
+            table, code, desc, value, unit = parse_meds_event(
+                row.code,
+                row.numeric_value,
+                row.text_value,
+                _DESC_MAPS,
+            )
+            text = format_event_text(table, code, desc, value, unit)
+            token_ids = _TOKENIZER.encode(text, add_special_tokens=False)
+            token_ids.append(_TOKENIZER.eos_token_id)
+            subject_token_ids.append(token_ids)
+        if current_subject_id is not None:
+            write_subject(current_subject_id, subject_token_ids, writer)
+        if buffer:
+            _write_rows(writer, buffer)
+            total_rows += len(buffer)
+    print(f"done_shard={shard_idx} rows={total_rows} output={part_path}", flush=True)
+    return {"path": str(part_path), "rows": total_rows}
 
 
 def _schema() -> pa.Schema:
@@ -74,6 +106,18 @@ def _write_rows(writer: pq.ParquetWriter, rows: list[dict[str, Any]]) -> None:
         writer.write_table(pa.Table.from_pylist(rows, schema=_schema()))
 
 
+def _merge_parts(part_paths: list[Path], output_path: Path) -> int:
+    total_rows = 0
+    with pq.ParquetWriter(output_path, _schema(), compression="zstd") as writer:
+        for part_path in part_paths:
+            parquet_file = pq.ParquetFile(part_path)
+            for batch in parquet_file.iter_batches(batch_size=2048):
+                table = pa.Table.from_batches([batch], schema=_schema())
+                writer.write_table(table)
+                total_rows += table.num_rows
+    return total_rows
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--meds_dir", type=Path, required=True, help="Coherent MEDS data dir containing split subdirs, e.g. .../mimic-2.2-meds/data")
@@ -91,6 +135,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    global _TOKENIZER, _DESC_MAPS, _ARGS
     args = parse_args()
     if not args.meds_dir.exists():
         raise FileNotFoundError(f"MEDS directory not found: {args.meds_dir}")
@@ -104,31 +149,30 @@ def main() -> None:
         raise FileNotFoundError(f"No parquet shards found under {args.meds_dir / args.split}")
 
     args.output_path.parent.mkdir(parents=True, exist_ok=True)
-    desc_maps = build_mimic_description_maps(args.mimic_raw_dir)
-    args_dict = vars(args).copy()
-    args_dict["meds_dir"] = str(args.meds_dir)
-    args_dict["mimic_raw_dir"] = str(args.mimic_raw_dir)
-    args_dict["output_path"] = str(args.output_path)
+    parts_dir = args.output_path.with_name(f".{args.output_path.name}.parts")
+    if parts_dir.exists():
+        shutil.rmtree(parts_dir)
+    parts_dir.mkdir(parents=True)
 
-    ctx = mp.get_context("spawn")
-    buffer: list[dict[str, Any]] = []
-    total_rows = 0
-    with pq.ParquetWriter(args.output_path, _schema(), compression="zstd") as writer:
-        with ctx.Pool(
-            processes=args.num_workers,
-            initializer=_init_worker,
-            initargs=(args_dict, desc_maps),
-        ) as pool:
-            for shard_idx, rows in enumerate(pool.imap_unordered(_process_shard, [str(p) for p in paths]), start=1):
-                buffer.extend(rows)
-                if len(buffer) >= args.flush_rows:
-                    _write_rows(writer, buffer)
-                    total_rows += len(buffer)
-                    buffer.clear()
-                print(f"processed_shards={shard_idx}/{len(paths)} buffered={len(buffer)} total_rows={total_rows}", flush=True)
-        if buffer:
-            _write_rows(writer, buffer)
-            total_rows += len(buffer)
+    desc_maps = build_mimic_description_maps(args.mimic_raw_dir)
+    _ARGS = args
+    _DESC_MAPS = desc_maps
+    _TOKENIZER = AutoTokenizer.from_pretrained(args.model_name, trust_remote_code=True)
+    if _TOKENIZER.pad_token_id is None:
+        _TOKENIZER.pad_token = _TOKENIZER.eos_token
+
+    ctx = mp.get_context("fork")
+    part_results: list[dict[str, Any]] = []
+    with ctx.Pool(processes=args.num_workers) as pool:
+        indexed_paths = [(idx, str(path)) for idx, path in enumerate(paths)]
+        for processed_count, result in enumerate(pool.imap_unordered(_process_shard, indexed_paths), start=1):
+            part_results.append(result)
+            total_part_rows = sum(int(part["rows"]) for part in part_results)
+            print(f"processed_shards={processed_count}/{len(paths)} part_rows={total_part_rows}", flush=True)
+
+    part_paths = sorted(Path(part["path"]) for part in part_results)
+    total_rows = _merge_parts(part_paths, args.output_path)
+    shutil.rmtree(parts_dir)
 
     write_json(
         args.output_path.with_suffix(".metadata.json"),

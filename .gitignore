@@ -3,6 +3,7 @@ __pycache__/
 
 data/
 experiments/
+logs/
 *.parquet
 *.pt
 *.safetensors

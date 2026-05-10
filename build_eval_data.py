@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import multiprocessing as mp
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -49,9 +50,16 @@ _TOKENIZER = None
 _ARGS: argparse.Namespace | None = None
 
 
-def _init_parse_worker(desc_maps: dict[str, dict[str, str]]) -> None:
-    global _DESC_MAPS
-    _DESC_MAPS = desc_maps
+def _init_worker(args_dict: dict[str, Any], desc_maps: dict[str, dict[str, str]]) -> None:
+    global _DESC_MAPS, _TOKENIZER, _ARGS
+    if _ARGS is None:
+        _ARGS = argparse.Namespace(**args_dict)
+    if _DESC_MAPS is None:
+        _DESC_MAPS = desc_maps
+    if _TOKENIZER is None:
+        _TOKENIZER = AutoTokenizer.from_pretrained(_ARGS.model_name, trust_remote_code=True)
+        if _TOKENIZER.pad_token_id is None:
+            _TOKENIZER.pad_token = _TOKENIZER.eos_token
 
 
 def _event_sort_key(event: TimelineEvent) -> tuple[int, pd.Timestamp, int, str]:
@@ -59,11 +67,10 @@ def _event_sort_key(event: TimelineEvent) -> tuple[int, pd.Timestamp, int, str]:
     return event.subject_id, ts, event.order, event.key
 
 
-def _parse_shard(item: tuple[int, str]) -> list[TimelineEvent]:
+def _parse_shard_events(shard_idx: int, path: str) -> dict[int, list[TimelineEvent]]:
     assert _DESC_MAPS is not None
-    shard_idx, path = item
     df = pd.read_parquet(path)
-    events: list[TimelineEvent] = []
+    events_by_subject: dict[int, list[TimelineEvent]] = {}
     for row_idx, row in enumerate(df.itertuples(index=False)):
         row_dict = row._asdict()
         subject_id = int(row_dict["subject_id"])
@@ -79,7 +86,7 @@ def _parse_shard(item: tuple[int, str]) -> list[TimelineEvent]:
         stay_id = normalize_optional_int(row_dict.get("icustay_id"))
         text = format_event_text(table, code, desc, value, unit)
         key = unique_event_key(subject_id, time, table, code, value, desc)
-        events.append(
+        events_by_subject.setdefault(subject_id, []).append(
             TimelineEvent(
                 subject_id=subject_id,
                 time=time,
@@ -91,16 +98,9 @@ def _parse_shard(item: tuple[int, str]) -> list[TimelineEvent]:
                 order=shard_idx * 10_000_000_000 + row_idx,
             )
         )
-    events.sort(key=_event_sort_key)
-    return events
-
-
-def _init_sample_worker(args_dict: dict[str, Any]) -> None:
-    global _TOKENIZER, _ARGS
-    _ARGS = argparse.Namespace(**args_dict)
-    _TOKENIZER = AutoTokenizer.from_pretrained(_ARGS.model_name, trust_remote_code=True)
-    if _TOKENIZER.pad_token_id is None:
-        _TOKENIZER.pad_token = _TOKENIZER.eos_token
+    for events in events_by_subject.values():
+        events.sort(key=_event_sort_key)
+    return events_by_subject
 
 
 def _is_code(code: str, base: str) -> bool:
@@ -225,6 +225,64 @@ def _schema() -> pa.Schema:
     )
 
 
+def _write_rows(writer: pq.ParquetWriter, rows: list[dict[str, Any]]) -> None:
+    if rows:
+        writer.write_table(pa.Table.from_pylist(rows, schema=_schema()))
+
+
+def _process_shard_part(item: tuple[str, int, str]) -> dict[str, Any]:
+    assert _ARGS is not None
+    split, shard_idx, path = item
+    output_dir = Path(_ARGS.output_dir)
+    parts_dir = output_dir / _ARGS.task / f".{split}.parquet.parts"
+    part_path = parts_dir / f"part-{shard_idx:05d}.parquet"
+    print(f"split={split} start_shard={shard_idx} path={path} output={part_path}", flush=True)
+
+    events_by_subject = _parse_shard_events(shard_idx, path)
+    items = sorted(events_by_subject.items())
+    if _ARGS.max_subjects:
+        items = items[: _ARGS.max_subjects]
+
+    total_rows = 0
+    positives = 0
+    buffer: list[dict[str, Any]] = []
+    with pq.ParquetWriter(part_path, _schema(), compression="zstd") as writer:
+        for subject_idx, item in enumerate(items, start=1):
+            subject_samples = _samples_for_subject(item)
+            if _ARGS.max_samples and total_rows + len(buffer) + len(subject_samples) > _ARGS.max_samples:
+                keep = max(0, _ARGS.max_samples - total_rows - len(buffer))
+                subject_samples = subject_samples[:keep]
+            positives += sum(int(row["label"]) for row in subject_samples)
+            buffer.extend(subject_samples)
+            if len(buffer) >= _ARGS.flush_rows:
+                _write_rows(writer, buffer)
+                total_rows += len(buffer)
+                buffer.clear()
+            if _ARGS.max_samples and total_rows + len(buffer) >= _ARGS.max_samples:
+                break
+            if subject_idx % 1000 == 0:
+                print(f"split={split} shard={shard_idx} subjects={subject_idx}/{len(items)} rows={total_rows + len(buffer)}", flush=True)
+        if buffer:
+            _write_rows(writer, buffer)
+            total_rows += len(buffer)
+
+    print(f"split={split} done_shard={shard_idx} rows={total_rows} positives={positives} output={part_path}", flush=True)
+    return {"path": str(part_path), "rows": total_rows, "positives": positives, "subjects": len(items)}
+
+
+def _merge_parts(part_paths: list[Path], output_path: Path) -> int:
+    total_rows = 0
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with pq.ParquetWriter(output_path, _schema(), compression="zstd") as writer:
+        for part_path in part_paths:
+            parquet_file = pq.ParquetFile(part_path)
+            for batch in parquet_file.iter_batches(batch_size=2048):
+                table = pa.Table.from_batches([batch], schema=_schema())
+                writer.write_table(table)
+                total_rows += table.num_rows
+    return total_rows
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--meds_dir", type=Path, required=True)
@@ -238,62 +296,56 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max_shards", type=int, default=0)
     parser.add_argument("--max_subjects", type=int, default=0)
     parser.add_argument("--max_samples", type=int, default=0)
+    parser.add_argument("--flush_rows", type=int, default=2048)
     return parser.parse_args()
 
 
-def _load_split_events(args: argparse.Namespace, split: str, desc_maps: dict[str, dict[str, str]]) -> dict[int, list[TimelineEvent]]:
+def _build_split(args: argparse.Namespace, split: str, desc_maps: dict[str, dict[str, str]]) -> dict[str, Any]:
+    global _ARGS, _DESC_MAPS, _TOKENIZER
     paths = shard_paths(args.meds_dir, split)
     if args.max_shards:
         paths = paths[: args.max_shards]
     if not paths:
         raise FileNotFoundError(f"No MEDS shards found under {args.meds_dir / split}")
 
-    events_by_subject: dict[int, list[TimelineEvent]] = {}
-    ctx = mp.get_context("spawn")
-    indexed_paths = [(idx, str(path)) for idx, path in enumerate(paths)]
-    with ctx.Pool(args.num_workers, initializer=_init_parse_worker, initargs=(desc_maps,)) as pool:
-        for shard_count, events in enumerate(pool.imap_unordered(_parse_shard, indexed_paths), start=1):
-            for event in events:
-                events_by_subject.setdefault(event.subject_id, []).append(event)
-            print(f"split={split} parsed_shards={shard_count}/{len(paths)} subjects={len(events_by_subject)}", flush=True)
-
-    for events in events_by_subject.values():
-        events.sort(key=_event_sort_key)
-    return events_by_subject
-
-
-def _build_split(args: argparse.Namespace, split: str, desc_maps: dict[str, dict[str, str]]) -> dict[str, Any]:
-    events_by_subject = _load_split_events(args, split, desc_maps)
-    items = sorted(events_by_subject.items())
-    if args.max_subjects:
-        items = items[: args.max_subjects]
+    split_dir = args.output_dir / args.task
+    parts_dir = split_dir / f".{split}.parquet.parts"
+    if parts_dir.exists():
+        shutil.rmtree(parts_dir)
+    parts_dir.mkdir(parents=True)
 
     args_dict = vars(args).copy()
     for key in ("meds_dir", "mimic_raw_dir", "output_dir"):
         args_dict[key] = str(args_dict[key])
+    _ARGS = args
+    _DESC_MAPS = desc_maps
+    if _TOKENIZER is None:
+        _TOKENIZER = AutoTokenizer.from_pretrained(args.model_name, trust_remote_code=True)
+        if _TOKENIZER.pad_token_id is None:
+            _TOKENIZER.pad_token = _TOKENIZER.eos_token
 
     ctx_name = "fork" if "fork" in mp.get_all_start_methods() else "spawn"
     ctx = mp.get_context(ctx_name)
-    samples: list[dict[str, Any]] = []
-    with ctx.Pool(args.num_workers, initializer=_init_sample_worker, initargs=(args_dict,)) as pool:
-        for subject_count, subject_samples in enumerate(pool.imap(_samples_for_subject, items, chunksize=32), start=1):
-            samples.extend(subject_samples)
-            if args.max_samples and len(samples) >= args.max_samples:
-                samples = samples[: args.max_samples]
-                break
-            if subject_count % 1000 == 0:
-                print(f"split={split} sampled_subjects={subject_count}/{len(items)} samples={len(samples)}", flush=True)
+    indexed_paths = [(split, idx, str(path)) for idx, path in enumerate(paths)]
+    part_results: list[dict[str, Any]] = []
+    with ctx.Pool(args.num_workers, initializer=_init_worker, initargs=(args_dict, desc_maps)) as pool:
+        for shard_count, result in enumerate(pool.imap_unordered(_process_shard_part, indexed_paths), start=1):
+            part_results.append(result)
+            rows_so_far = sum(int(part["rows"]) for part in part_results)
+            print(f"split={split} processed_shards={shard_count}/{len(paths)} part_rows={rows_so_far}", flush=True)
 
     out_path = args.output_dir / args.task / f"{split}.parquet"
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    pq.write_table(pa.Table.from_pylist(samples, schema=_schema()), out_path, compression="zstd")
-    positives = sum(int(row["label"]) for row in samples)
-    print(f"wrote split={split} rows={len(samples)} positives={positives} to {out_path}", flush=True)
+    part_paths = sorted(Path(part["path"]) for part in part_results)
+    rows = _merge_parts(part_paths, out_path)
+    shutil.rmtree(parts_dir)
+    positives = sum(int(part["positives"]) for part in part_results)
+    subjects = sum(int(part["subjects"]) for part in part_results)
+    print(f"wrote split={split} rows={rows} positives={positives} to {out_path}", flush=True)
     return {
-        "subjects": len(items),
-        "rows": len(samples),
+        "subjects": subjects,
+        "rows": rows,
         "positives": positives,
-        "positive_rate": positives / len(samples) if samples else None,
+        "positive_rate": positives / rows if rows else None,
         "output": str(out_path),
     }
 

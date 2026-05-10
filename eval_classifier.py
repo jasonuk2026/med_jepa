@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Frozen-backbone linear evaluation for packed EHR event data."""
+"""Frozen-backbone classifier evaluation for packed EHR event data."""
 
 from __future__ import annotations
 
@@ -44,6 +44,21 @@ class EvalDataset(Dataset):
         }
 
 
+def make_model_attention_mask(input_ids: torch.Tensor, attention_mask: torch.Tensor, eot_token_id: int, eot_attention: str) -> torch.Tensor:
+    if eot_attention == "none":
+        return attention_mask
+    keep = attention_mask.bool() & (input_ids != eot_token_id)
+    if eot_attention == "keep_last":
+        valid_eot = attention_mask.bool() & (input_ids == eot_token_id)
+        positions = torch.arange(input_ids.size(1), device=input_ids.device).unsqueeze(0).expand_as(input_ids)
+        last_eot_idx = torch.where(valid_eot, positions, torch.zeros_like(positions)).max(dim=1, keepdim=True).values
+        last_eot = valid_eot & (positions == last_eot_idx) & valid_eot.any(dim=1, keepdim=True)
+        keep = keep | last_eot
+    fallback = attention_mask.bool()
+    keep = torch.where(keep.any(dim=1, keepdim=True), keep, fallback)
+    return keep.to(dtype=attention_mask.dtype)
+
+
 def pool_hidden(hidden: torch.Tensor, input_ids: torch.Tensor, attention_mask: torch.Tensor, eot_token_id: int, pooling: str) -> torch.Tensor:
     valid = attention_mask.bool()
     if pooling == "mean_all":
@@ -51,6 +66,16 @@ def pool_hidden(hidden: torch.Tensor, input_ids: torch.Tensor, attention_mask: t
     if pooling == "last_token":
         idx = valid.long().sum(dim=1).clamp_min(1) - 1
         return hidden[torch.arange(hidden.size(0), device=hidden.device), idx]
+    non_eot = valid & (input_ids != eot_token_id)
+    if pooling == "last_non_eot":
+        fallback = valid.long().sum(dim=1).clamp_min(1) - 1
+        positions = torch.arange(input_ids.size(1), device=input_ids.device).unsqueeze(0).expand_as(input_ids)
+        idx = torch.where(non_eot, positions, torch.zeros_like(positions)).max(dim=1).values
+        idx = torch.where(non_eot.any(dim=1), idx, fallback)
+        return hidden[torch.arange(hidden.size(0), device=hidden.device), idx]
+    if pooling == "mean_non_eot":
+        denom = non_eot.sum(dim=1, keepdim=True).clamp_min(1)
+        return (hidden * non_eot.unsqueeze(-1)).sum(dim=1) / denom
     eot = valid & (input_ids == eot_token_id)
     if pooling == "mean_eot":
         denom = eot.sum(dim=1, keepdim=True).clamp_min(1)
@@ -74,7 +99,8 @@ def evaluate(args: argparse.Namespace, model: nn.Module, head: nn.Module, loader
         input_ids = batch["input_ids"].to(device, non_blocking=True)
         attention_mask = batch["attention_mask"].to(device, non_blocking=True)
         label = batch["label"].to(device, non_blocking=True)
-        out = model(input_ids=input_ids, attention_mask=attention_mask, use_cache=False, return_dict=True)
+        model_attention_mask = make_model_attention_mask(input_ids, attention_mask, eot_token_id, args.eot_attention)
+        out = model(input_ids=input_ids, attention_mask=model_attention_mask, use_cache=False, return_dict=True)
         pooled = pool_hidden(out.last_hidden_state, input_ids, attention_mask, eot_token_id, args.pooling)
         prob = torch.sigmoid(head(pooled).squeeze(-1))
         preds.extend(prob.float().cpu().tolist())
@@ -111,7 +137,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--weight_decay", type=float, default=0.0)
     parser.add_argument("--early_stopping_patience", type=int, default=5)
     parser.add_argument("--dtype", choices=["bf16", "fp32"], default="bf16")
-    parser.add_argument("--pooling", choices=["last_eot", "mean_eot", "last_token", "mean_all"], default="mean_eot")
+    parser.add_argument("--pooling", choices=["last_eot", "mean_eot", "last_token", "mean_all", "last_non_eot", "mean_non_eot"], default="mean_eot")
+    parser.add_argument("--eot_attention", choices=["none", "all", "keep_last"], default="none")
+    parser.add_argument("--ignore_eot_attention", action="store_const", const="all", dest="eot_attention", default=argparse.SUPPRESS)
     parser.add_argument("--attn_implementation", choices=["eager", "sdpa", "flash_attention_2", "flash_attention_3"], default="sdpa")
     parser.add_argument("--compile", action="store_true")
     parser.add_argument("--num_workers", type=int, default=4)
@@ -166,7 +194,8 @@ def main() -> None:
             attention_mask = batch["attention_mask"].to(device, non_blocking=True)
             label = batch["label"].to(device, non_blocking=True)
             with torch.no_grad():
-                out = model(input_ids=input_ids, attention_mask=attention_mask, use_cache=False, return_dict=True)
+                model_attention_mask = make_model_attention_mask(input_ids, attention_mask, eot_token_id, args.eot_attention)
+                out = model(input_ids=input_ids, attention_mask=model_attention_mask, use_cache=False, return_dict=True)
                 pooled = pool_hidden(out.last_hidden_state, input_ids, attention_mask, eot_token_id, args.pooling)
             logits = head(pooled).squeeze(-1)
             loss = F.binary_cross_entropy_with_logits(logits.float(), label.float())
