@@ -236,6 +236,26 @@ torchrun --standalone --nproc_per_node=4 eval_classifier.py \
 --num_workers 4
 ```
 
+Four-GPU Qwen3-Embedding linear-probe baseline using the final EOT token
+embedding as the sequence embedding:
+
+```bash
+./run_sm.sh -j eval_qwen3_embedding_last_eot_linear_4gpu -n 4 -c 16 -m 100G -t 06:00:00 \
+torchrun --standalone --nproc_per_node=4 eval_classifier.py \
+--pretrained_dir Qwen/Qwen3-Embedding-0.6B \
+--eval_parquet_dir data/eval \
+--task icu_mortality \
+--output_dir experiments/classifier/qwen3_embedding_last_eot_linear_4gpu \
+--pooling last_eot \
+--eot_attention none \
+--attn_implementation flash_attention_3 \
+--dtype bf16 \
+--batch_size 8 \
+--epochs 6 \
+--lr 1e-4 \
+--num_workers 4
+```
+
 ## Smoke tests
 
 ```bash
