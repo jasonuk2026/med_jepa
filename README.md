@@ -335,8 +335,9 @@ torchrun --standalone --nproc_per_node=4 eval_classifier.py \
 ```
 
 Four-GPU Qwen3-Embedding linear-probe baseline. Qwen3-Embedding uses a final
-`<|endoftext|>` token as the sequence embedding position, while the packed EHR
-events use `<|im_end|>` as event boundaries:
+`<|endoftext|>` token as the sequence embedding position. The packed EHR
+events use `<|im_end|>` as event boundaries, so this masks those boundary
+tokens from attention and pools the appended `<|endoftext|>` representation:
 
 ```bash
 ./run_sm.sh -j eval_qwen3_embedding_appended_endoftext_linear_4gpu -n 4 -c 16 -m 100G -t 06:00:00 \
@@ -346,7 +347,7 @@ torchrun --standalone --nproc_per_node=4 eval_classifier.py \
 --task icu_mortality \
 --output_dir experiments/classifier/qwen3_embedding_appended_endoftext_linear_4gpu \
 --pooling appended_token \
---eot_attention none \
+--eot_attention all \
 --eot_token '<|im_end|>' \
 --append_token '<|endoftext|>' \
 --attn_implementation flash_attention_3 \
