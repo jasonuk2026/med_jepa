@@ -130,6 +130,49 @@ def gather_jepa_pairs(
     return torch.stack(sources), torch.stack(targets)
 
 
+def token_to_id(tokenizer: Any, token: str) -> int | None:
+    token_id = tokenizer.convert_tokens_to_ids(token)
+    if token_id is None:
+        return None
+    if token_id == tokenizer.unk_token_id and token != tokenizer.unk_token:
+        return None
+    return int(token_id)
+
+
+def infer_eot_token_id(train_parquet: Path, tokenizer: Any, override_token: str | None) -> int:
+    if override_token:
+        token_id = token_to_id(tokenizer, override_token)
+        if token_id is None:
+            raise ValueError(f"Could not resolve --eot_token {override_token!r} with this tokenizer")
+        return token_id
+
+    candidates: list[tuple[str, int]] = []
+    for name, token_id in (
+        ("tokenizer.eos_token", tokenizer.eos_token_id),
+        ("<|im_end|>", token_to_id(tokenizer, "<|im_end|>")),
+        ("<|endoftext|>", token_to_id(tokenizer, "<|endoftext|>")),
+    ):
+        if token_id is not None and all(existing_id != int(token_id) for _, existing_id in candidates):
+            candidates.append((name, int(token_id)))
+
+    counts = {token_id: 0 for _, token_id in candidates}
+    if counts:
+        parquet_file = pq.ParquetFile(train_parquet)
+        table = parquet_file.read_row_group(0, columns=["input_ids", "attention_mask", "event_ids"]).slice(0, 256)
+        rows = table.to_pydict()
+        for input_ids, attention_mask, event_ids in zip(rows["input_ids"], rows["attention_mask"], rows["event_ids"]):
+            for token_id, mask, event_id in zip(input_ids, attention_mask, event_ids):
+                if mask and event_id >= 0 and token_id in counts:
+                    counts[token_id] += 1
+        best_id, best_count = max(counts.items(), key=lambda item: item[1])
+        if best_count > 0:
+            return best_id
+
+    if tokenizer.eos_token_id is None:
+        raise ValueError("Tokenizer has no eos_token_id and no EOT token could be inferred")
+    return int(tokenizer.eos_token_id)
+
+
 def jepa_loss_fn(pred: torch.Tensor, target: torch.Tensor, loss_type: str, var_gamma: float) -> tuple[torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
     mse = F.mse_loss(pred.float(), target.detach().float()).to(pred.dtype)
     cosine_sim = (F.normalize(pred, dim=-1) * F.normalize(target.detach(), dim=-1)).sum(dim=-1).mean()
@@ -229,6 +272,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--future_k", type=int, default=1)
     parser.add_argument("--jepa_loss", choices=["cosine", "mse"], default="cosine")
     parser.add_argument("--jepa_weight", type=float, default=1.0)
+    parser.add_argument("--eot_token", default=None, help="Event boundary token. Defaults to inferring from valid tokens in --train_parquet.")
     parser.add_argument("--ema_momentum", type=float, default=0.996)
     parser.add_argument("--var_weight", type=float, default=0.0)
     parser.add_argument("--var_gamma", type=float, default=0.02)
@@ -261,7 +305,7 @@ def main() -> None:
     tokenizer = AutoTokenizer.from_pretrained(args.model_name, trust_remote_code=True)
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
-    eot_token_id = tokenizer.eos_token_id
+    eot_token_id = infer_eot_token_id(args.train_parquet, tokenizer, args.eot_token)
 
     student = AutoModelForCausalLM.from_pretrained(
         args.model_name,
@@ -322,7 +366,8 @@ def main() -> None:
     rank0_print(
         f"rows={len(dataset)} world={world} batch_size={args.batch_size} "
         f"effective_batch={effective_batch} accum_steps={accum_steps} "
-        f"updates_per_epoch={updates_per_epoch} total_steps={total_steps} max_steps={args.max_steps or 'none'}"
+        f"updates_per_epoch={updates_per_epoch} total_steps={total_steps} max_steps={args.max_steps or 'none'} "
+        f"eot_token_id={eot_token_id}"
     )
     global_step = 0
     update_t0: float | None = None

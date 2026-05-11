@@ -187,7 +187,8 @@ def main() -> None:
             "mimic_raw_dir": str(args.mimic_raw_dir),
             "num_workers": args.num_workers,
             "append_eot": not args.no_eot,
-            "eot_token": None if args.no_eot else "<|endoftext|>",
+            "eot_token": None if args.no_eot else _TOKENIZER.eos_token,
+            "eot_token_id": None if args.no_eot else _TOKENIZER.eos_token_id,
             "source": "meds_raw_rebuilt",
         },
     )
