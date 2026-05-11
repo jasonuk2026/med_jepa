@@ -76,7 +76,8 @@ def _process_shard(item: tuple[int, str]) -> dict[str, Any]:
             )
             text = format_event_text(table, code, desc, value, unit)
             token_ids = _TOKENIZER.encode(text, add_special_tokens=False)
-            token_ids.append(_TOKENIZER.eos_token_id)
+            if not _ARGS.no_eot:
+                token_ids.append(_TOKENIZER.eos_token_id)
             subject_token_ids.append(token_ids)
         if current_subject_id is not None:
             write_subject(current_subject_id, subject_token_ids, writer)
@@ -131,6 +132,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max_rows_per_shard", type=int, default=0)
     parser.add_argument("--max_patients_per_shard", type=int, default=0)
     parser.add_argument("--flush_rows", type=int, default=2048)
+    parser.add_argument("--no_eot", action="store_true", help="Do not append the tokenizer EOS/EOT token after each event.")
     return parser.parse_args()
 
 
@@ -184,7 +186,8 @@ def main() -> None:
             "meds_dir": str(args.meds_dir),
             "mimic_raw_dir": str(args.mimic_raw_dir),
             "num_workers": args.num_workers,
-            "eot_token": "<|endoftext|>",
+            "append_eot": not args.no_eot,
+            "eot_token": None if args.no_eot else "<|endoftext|>",
             "source": "meds_raw_rebuilt",
         },
     )

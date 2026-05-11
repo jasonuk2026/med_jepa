@@ -36,6 +36,19 @@ python build_pretrain_data.py \
 --num_workers 4
 ```
 
+To build an AR-only pretraining set without EOT tokens between events:
+
+```bash
+./run_sm.sh -j build_pretrain_no_eot -n 0 -c 4 -m 100G -t 24:00:00 \
+python build_pretrain_data.py \
+--meds_dir data/raw/mimic-2.2-meds/data \
+--mimic_raw_dir data/raw/mimic-iv-2.2 \
+--output_path data/pretrain/train_no_eot.parquet \
+--seq_len 2048 \
+--num_workers 4 \
+--no_eot
+```
+
 Slurm logs are written under `logs/slurm/<YYYYMMDD>/<job_name>/`, with
 `*.out`, `*.err`, a `*.cmd.txt` command record, and the generated `*.job.sh`
 script for each submission.
