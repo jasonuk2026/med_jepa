@@ -59,11 +59,39 @@ def make_model_attention_mask(input_ids: torch.Tensor, attention_mask: torch.Ten
     return keep.to(dtype=attention_mask.dtype)
 
 
+def append_sequence_token(
+    input_ids: torch.Tensor,
+    attention_mask: torch.Tensor,
+    event_ids: torch.Tensor,
+    append_token_id: int | None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    if append_token_id is None:
+        return input_ids, attention_mask, event_ids
+
+    batch, seq_len = input_ids.shape
+    new_input_ids = input_ids.clone()
+    new_attention_mask = attention_mask.clone()
+    new_event_ids = event_ids.clone()
+    for row_idx in range(batch):
+        valid_len = int(attention_mask[row_idx].sum().item())
+        if valid_len >= seq_len:
+            new_input_ids[row_idx, :-1] = input_ids[row_idx, 1:]
+            new_attention_mask[row_idx, :-1] = attention_mask[row_idx, 1:]
+            new_event_ids[row_idx, :-1] = event_ids[row_idx, 1:]
+            insert_idx = seq_len - 1
+        else:
+            insert_idx = valid_len
+        new_input_ids[row_idx, insert_idx] = append_token_id
+        new_attention_mask[row_idx, insert_idx] = 1
+        new_event_ids[row_idx, insert_idx] = -1
+    return new_input_ids, new_attention_mask, new_event_ids
+
+
 def pool_hidden(hidden: torch.Tensor, input_ids: torch.Tensor, attention_mask: torch.Tensor, eot_token_id: int, pooling: str) -> torch.Tensor:
     valid = attention_mask.bool()
     if pooling == "mean_all":
         return (hidden * valid.unsqueeze(-1)).sum(dim=1) / valid.sum(dim=1, keepdim=True).clamp_min(1)
-    if pooling == "last_token":
+    if pooling in {"last_token", "appended_token"}:
         idx = valid.long().sum(dim=1).clamp_min(1) - 1
         return hidden[torch.arange(hidden.size(0), device=hidden.device), idx]
     non_eot = valid & (input_ids != eot_token_id)
@@ -143,7 +171,9 @@ def evaluate(args: argparse.Namespace, model: nn.Module, head: nn.Module, loader
     for batch in loader:
         input_ids = batch["input_ids"].to(device, non_blocking=True)
         attention_mask = batch["attention_mask"].to(device, non_blocking=True)
+        event_ids = batch["event_ids"].to(device, non_blocking=True)
         label = batch["label"].to(device, non_blocking=True)
+        input_ids, attention_mask, event_ids = append_sequence_token(input_ids, attention_mask, event_ids, args.append_token_id)
         model_attention_mask = make_model_attention_mask(input_ids, attention_mask, eot_token_id, args.eot_attention)
         out = model(input_ids=input_ids, attention_mask=model_attention_mask, use_cache=False, return_dict=True)
         pooled = pool_hidden(out.last_hidden_state, input_ids, attention_mask, eot_token_id, args.pooling)
@@ -182,9 +212,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--weight_decay", type=float, default=0.0)
     parser.add_argument("--early_stopping_patience", type=int, default=5)
     parser.add_argument("--dtype", choices=["bf16", "fp32"], default="bf16")
-    parser.add_argument("--pooling", choices=["last_eot", "mean_eot", "last_token", "mean_all", "last_non_eot", "mean_non_eot"], default="mean_eot")
+    parser.add_argument("--pooling", choices=["last_eot", "mean_eot", "last_token", "appended_token", "mean_all", "last_non_eot", "mean_non_eot"], default="mean_eot")
     parser.add_argument("--eot_attention", choices=["none", "all", "keep_last"], default="none")
     parser.add_argument("--eot_token", default=None, help="Event boundary token. Defaults to inferring from valid tokens in eval train parquet.")
+    parser.add_argument("--append_token", default=None, help="Optional token appended to each sequence before pooling, e.g. <|endoftext|> for Qwen3-Embedding.")
     parser.add_argument("--ignore_eot_attention", action="store_const", const="all", dest="eot_attention", default=argparse.SUPPRESS)
     parser.add_argument("--attn_implementation", choices=["eager", "sdpa", "flash_attention_2", "flash_attention_3"], default="sdpa")
     parser.add_argument("--compile", action="store_true")
@@ -203,7 +234,10 @@ def main() -> None:
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
     eot_token_id = infer_eot_token_id(args.eval_parquet_dir, args.task, tokenizer, args.eot_token)
-    rank0_print(f"eot_token_id={eot_token_id}")
+    args.append_token_id = token_to_id(tokenizer, args.append_token) if args.append_token else None
+    if args.append_token and args.append_token_id is None:
+        raise ValueError(f"Could not resolve --append_token {args.append_token!r} with this tokenizer")
+    rank0_print(f"eot_token_id={eot_token_id} append_token_id={args.append_token_id}")
 
     model = AutoModel.from_pretrained(
         args.pretrained_dir,
@@ -239,7 +273,9 @@ def main() -> None:
         for batch in train_loader:
             input_ids = batch["input_ids"].to(device, non_blocking=True)
             attention_mask = batch["attention_mask"].to(device, non_blocking=True)
+            event_ids = batch["event_ids"].to(device, non_blocking=True)
             label = batch["label"].to(device, non_blocking=True)
+            input_ids, attention_mask, event_ids = append_sequence_token(input_ids, attention_mask, event_ids, args.append_token_id)
             with torch.no_grad():
                 model_attention_mask = make_model_attention_mask(input_ids, attention_mask, eot_token_id, args.eot_attention)
                 out = model(input_ids=input_ids, attention_mask=model_attention_mask, use_cache=False, return_dict=True)
