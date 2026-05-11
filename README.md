@@ -212,18 +212,21 @@ torchrun --standalone --nproc_per_node=4 train_jepa.py \
 --save_every_epoch
 ```
 
-Four-GPU full-epoch Slurm run with Qwen3 Base and MSE JEPA loss:
+Four-GPU full-epoch Slurm run with Qwen3 Base and MSE JEPA loss. The
+previous `data/pretrain/train.parquet` was built with `<|im_end|>` as the
+event boundary token, so pass it explicitly when training the Base model:
 
 ```bash
-./run_sm.sh -j pretrain_base_jepa_4gpu_future2_mse_warmup10_full_epoch -n 4 -c 16 -m 100G -t 24:00:00 \
+./run_sm.sh -j pretrain_base_jepa_4gpu_future2_mse_warmup10_full_epoch_v2 -n 4 -c 16 -m 100G -t 24:00:00 \
 torchrun --standalone --nproc_per_node=4 train_jepa.py \
 --model_name Qwen/Qwen3-0.6B-Base \
 --train_parquet data/pretrain/train.parquet \
---output_dir experiments/qwen3_0p6b_base_event_jepa_4gpu_future2_mse_warmup10_full_epoch \
+--output_dir experiments/qwen3_0p6b_base_event_jepa_4gpu_future2_mse_warmup10_full_epoch_v2 \
 --attn_implementation flash_attention_3 \
 --batch_size 8 \
 --global_batch_size 128 \
 --future_k 2 \
+--eot_token '<|im_end|>' \
 --jepa_loss mse \
 --epochs 1 \
 --lr 2e-4 \
