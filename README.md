@@ -256,18 +256,18 @@ torchrun --standalone --nproc_per_node=4 eval_classifier.py \
 --num_workers 4
 ```
 
-Four-GPU MIMIC AR-only linear-probe baseline using the final non-EOT token
-embedding:
+Four-GPU MIMIC AR-only linear-probe baseline using the mean of all EOT token
+embeddings:
 
 ```bash
-./run_sm.sh -j eval_mimic_ar_only_last_non_eot_linear_4gpu -n 4 -c 16 -m 100G -t 06:00:00 \
+./run_sm.sh -j eval_mimic_ar_only_mean_eot_linear_4gpu -n 4 -c 16 -m 100G -t 06:00:00 \
 torchrun --standalone --nproc_per_node=4 eval_classifier.py \
 --pretrained_dir experiments/qwen3_0p6b_mimic_ar_only_4gpu_warmup10_full_epoch/final \
 --eval_parquet_dir data/eval \
 --task icu_mortality \
---output_dir experiments/classifier/mimic_ar_only_last_non_eot_linear_4gpu \
---pooling last_non_eot \
---eot_attention keep_last \
+--output_dir experiments/classifier/mimic_ar_only_mean_eot_linear_4gpu \
+--pooling mean_eot \
+--eot_attention none \
 --attn_implementation flash_attention_3 \
 --dtype bf16 \
 --batch_size 8 \
