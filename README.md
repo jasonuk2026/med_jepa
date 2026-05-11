@@ -304,6 +304,7 @@ torchrun --standalone --nproc_per_node=4 eval_classifier.py \
 --output_dir experiments/classifier/jepa_cosine_full_epoch_mean_eot_linear_4gpu \
 --pooling mean_eot \
 --eot_attention none \
+--eot_token '<|im_end|>' \
 --attn_implementation flash_attention_3 \
 --dtype bf16 \
 --batch_size 8 \
@@ -324,6 +325,7 @@ torchrun --standalone --nproc_per_node=4 eval_classifier.py \
 --output_dir experiments/classifier/jepa_mse_full_epoch_mean_eot_linear_4gpu \
 --pooling mean_eot \
 --eot_attention none \
+--eot_token '<|im_end|>' \
 --attn_implementation flash_attention_3 \
 --dtype bf16 \
 --batch_size 8 \
@@ -364,6 +366,7 @@ torchrun --standalone --nproc_per_node=4 eval_classifier.py \
 --output_dir experiments/classifier/mimic_ar_only_mean_eot_linear_4gpu \
 --pooling mean_eot \
 --eot_attention none \
+--eot_token '<|im_end|>' \
 --attn_implementation flash_attention_3 \
 --dtype bf16 \
 --batch_size 8 \

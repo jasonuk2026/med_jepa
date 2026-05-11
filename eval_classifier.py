@@ -89,6 +89,51 @@ def pool_hidden(hidden: torch.Tensor, input_ids: torch.Tensor, attention_mask: t
     raise ValueError(f"unknown pooling: {pooling}")
 
 
+def token_to_id(tokenizer, token: str) -> int | None:
+    token_id = tokenizer.convert_tokens_to_ids(token)
+    if token_id is None:
+        return None
+    if token_id == tokenizer.unk_token_id and token != tokenizer.unk_token:
+        return None
+    return int(token_id)
+
+
+def infer_eot_token_id(eval_parquet_dir: Path, task: str, tokenizer, override_token: str | None) -> int:
+    if override_token:
+        token_id = token_to_id(tokenizer, override_token)
+        if token_id is None:
+            raise ValueError(f"Could not resolve --eot_token {override_token!r} with this tokenizer")
+        return token_id
+
+    candidates: list[int] = []
+    for token_id in (
+        tokenizer.eos_token_id,
+        token_to_id(tokenizer, "<|im_end|>"),
+        token_to_id(tokenizer, "<|endoftext|>"),
+    ):
+        if token_id is not None and int(token_id) not in candidates:
+            candidates.append(int(token_id))
+
+    counts = {token_id: 0 for token_id in candidates}
+    if counts:
+        table = pq.read_table(
+            eval_parquet_dir / task / "train.parquet",
+            columns=["input_ids", "attention_mask", "event_ids"],
+        ).slice(0, 256)
+        rows = table.to_pydict()
+        for input_ids, attention_mask, event_ids in zip(rows["input_ids"], rows["attention_mask"], rows["event_ids"]):
+            for token_id, mask, event_id in zip(input_ids, attention_mask, event_ids):
+                if mask and event_id >= 0 and token_id in counts:
+                    counts[token_id] += 1
+        best_id, best_count = max(counts.items(), key=lambda item: item[1])
+        if best_count > 0:
+            return best_id
+
+    if tokenizer.eos_token_id is None:
+        raise ValueError("Tokenizer has no eos_token_id and no EOT token could be inferred")
+    return int(tokenizer.eos_token_id)
+
+
 @torch.no_grad()
 def evaluate(args: argparse.Namespace, model: nn.Module, head: nn.Module, loader: DataLoader, eot_token_id: int, dtype: torch.dtype, device: torch.device) -> dict[str, float]:
     model.eval()
@@ -139,6 +184,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dtype", choices=["bf16", "fp32"], default="bf16")
     parser.add_argument("--pooling", choices=["last_eot", "mean_eot", "last_token", "mean_all", "last_non_eot", "mean_non_eot"], default="mean_eot")
     parser.add_argument("--eot_attention", choices=["none", "all", "keep_last"], default="none")
+    parser.add_argument("--eot_token", default=None, help="Event boundary token. Defaults to inferring from valid tokens in eval train parquet.")
     parser.add_argument("--ignore_eot_attention", action="store_const", const="all", dest="eot_attention", default=argparse.SUPPRESS)
     parser.add_argument("--attn_implementation", choices=["eager", "sdpa", "flash_attention_2", "flash_attention_3"], default="sdpa")
     parser.add_argument("--compile", action="store_true")
@@ -156,7 +202,8 @@ def main() -> None:
     tokenizer = AutoTokenizer.from_pretrained(args.pretrained_dir, trust_remote_code=True)
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
-    eot_token_id = tokenizer.eos_token_id
+    eot_token_id = infer_eot_token_id(args.eval_parquet_dir, args.task, tokenizer, args.eot_token)
+    rank0_print(f"eot_token_id={eot_token_id}")
 
     model = AutoModel.from_pretrained(
         args.pretrained_dir,
