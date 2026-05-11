@@ -9,3 +9,6 @@ logs/
 *.safetensors
 
 .DS_Store
+.vscode/
+core
+code
