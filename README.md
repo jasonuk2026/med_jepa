@@ -158,6 +158,33 @@ torchrun --standalone --nproc_per_node=4 train_jepa.py \
 --save_every_epoch
 ```
 
+Four-GPU full-epoch Slurm run with MIMIC AR-only loss on no-EOT pretraining
+data:
+
+```bash
+./run_sm.sh -j pretrain_mimic_ar_only_no_eot_4gpu_warmup10_full_epoch -n 4 -c 16 -m 100G -t 24:00:00 \
+torchrun --standalone --nproc_per_node=4 train_jepa.py \
+--model_name Qwen/Qwen3-0.6B \
+--train_parquet data/pretrain/train_no_eot.parquet \
+--output_dir experiments/qwen3_0p6b_mimic_ar_only_no_eot_4gpu_warmup10_full_epoch \
+--attn_implementation flash_attention_3 \
+--batch_size 8 \
+--global_batch_size 128 \
+--jepa_weight 0 \
+--var_weight 0 \
+--ar_weight 1.0 \
+--ar_eot_weight 0.0 \
+--epochs 1 \
+--lr 2e-4 \
+--warmup_ratio 0.10 \
+--dtype bf16 \
+--num_workers 4 \
+--prefetch_factor 4 \
+--persistent_workers \
+--log_steps 100 \
+--save_every_epoch
+```
+
 ## Build evaluation data
 
 Evaluation labels are generated from the MEDS timeline with ETHOS-style task logic. For
