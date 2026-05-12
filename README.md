@@ -355,6 +355,27 @@ torchrun --standalone --nproc_per_node=4 eval_classifier.py \
 --num_workers 4
 ```
 
+Four-GPU Qwen3 Base MSE-JEPA linear-probe baseline using the last EOT token
+embedding:
+
+```bash
+./run_sm.sh -j eval_base_jepa_mse_full_epoch_last_eot_linear_4gpu -n 4 -c 16 -m 100G -t 06:00:00 \
+torchrun --standalone --nproc_per_node=4 eval_classifier.py \
+--pretrained_dir experiments/qwen3_0p6b_base_event_jepa_4gpu_future2_mse_warmup10_full_epoch_v2/final \
+--eval_parquet_dir data/eval \
+--task icu_mortality \
+--output_dir experiments/classifier/base_jepa_mse_full_epoch_last_eot_linear_4gpu \
+--pooling last_eot \
+--eot_attention none \
+--eot_token '<|im_end|>' \
+--attn_implementation flash_attention_3 \
+--dtype bf16 \
+--batch_size 8 \
+--epochs 6 \
+--lr 1e-4 \
+--num_workers 4
+```
+
 Four-GPU Qwen3 Base no-EOT AR-only linear-probe baseline. This masks packed
 `<|im_end|>` event boundaries from attention and pools the last non-EOT token:
 
