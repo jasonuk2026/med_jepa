@@ -241,6 +241,34 @@ torchrun --standalone --nproc_per_node=4 train_jepa.py \
 --save_every_epoch
 ```
 
+Four-GPU full-epoch Slurm run with Qwen3 Base and MSE JEPA loss on no-EOT
+pretraining data. This uses the last token of each event as the JEPA source:
+
+```bash
+./run_sm.sh -j pretrain_base_jepa_no_eot_last_token_4gpu_future2_mse_warmup10_full_epoch -n 4 -c 16 -m 100G -t 24:00:00 \
+torchrun --standalone --nproc_per_node=4 train_jepa.py \
+--model_name Qwen/Qwen3-0.6B-Base \
+--train_parquet data/pretrain/train_no_eot.parquet \
+--output_dir experiments/qwen3_0p6b_base_jepa_no_eot_last_token_4gpu_future2_mse_warmup10_full_epoch \
+--attn_implementation flash_attention_3 \
+--batch_size 8 \
+--global_batch_size 128 \
+--future_k 2 \
+--jepa_source last_token \
+--jepa_loss mse \
+--epochs 1 \
+--lr 2e-4 \
+--warmup_ratio 0.10 \
+--var_weight 0.05 \
+--var_gamma 0.05 \
+--dtype bf16 \
+--num_workers 4 \
+--prefetch_factor 4 \
+--persistent_workers \
+--log_steps 100 \
+--save_every_epoch
+```
+
 ## Build evaluation data
 
 Evaluation labels are generated from the MEDS timeline with ETHOS-style task logic. For
@@ -386,6 +414,27 @@ torchrun --standalone --nproc_per_node=4 eval_classifier.py \
 --eval_parquet_dir data/eval \
 --task icu_mortality \
 --output_dir experiments/classifier/base_ar_only_no_eot_last_non_eot_linear_4gpu \
+--pooling last_non_eot \
+--eot_attention all \
+--eot_token '<|im_end|>' \
+--attn_implementation flash_attention_3 \
+--dtype bf16 \
+--batch_size 8 \
+--epochs 6 \
+--lr 1e-4 \
+--num_workers 4
+```
+
+Four-GPU Qwen3 Base no-EOT last-token MSE-JEPA linear-probe baseline. This uses
+the same downstream pooling as the no-EOT AR-only baseline:
+
+```bash
+./run_sm.sh -j eval_base_jepa_no_eot_last_token_last_non_eot_linear_4gpu -n 4 -c 16 -m 100G -t 06:00:00 \
+torchrun --standalone --nproc_per_node=4 eval_classifier.py \
+--pretrained_dir experiments/qwen3_0p6b_base_jepa_no_eot_last_token_4gpu_future2_mse_warmup10_full_epoch/final \
+--eval_parquet_dir data/eval \
+--task icu_mortality \
+--output_dir experiments/classifier/base_jepa_no_eot_last_token_last_non_eot_linear_4gpu \
 --pooling last_non_eot \
 --eot_attention all \
 --eot_token '<|im_end|>' \

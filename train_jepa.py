@@ -104,6 +104,7 @@ def gather_jepa_pairs(
     event_ids: torch.Tensor,
     eot_token_id: int,
     future_k: int,
+    source_mode: str,
 ) -> tuple[torch.Tensor | None, torch.Tensor | None]:
     sources: list[torch.Tensor] = []
     targets: list[torch.Tensor] = []
@@ -114,8 +115,14 @@ def gather_jepa_pairs(
             continue
         max_event = int(event_ids[b][valid].max().item())
         for event_idx in range(max_event + 1):
-            eot_positions = torch.nonzero(valid & (event_ids[b] == event_idx) & (input_ids[b] == eot_token_id), as_tuple=False).flatten()
-            if eot_positions.numel() == 0:
+            event_mask = valid & (event_ids[b] == event_idx)
+            if source_mode == "eot":
+                source_positions = torch.nonzero(event_mask & (input_ids[b] == eot_token_id), as_tuple=False).flatten()
+            elif source_mode == "last_token":
+                source_positions = torch.nonzero(event_mask & (input_ids[b] != eot_token_id), as_tuple=False).flatten()
+            else:
+                raise ValueError(f"unknown jepa_source: {source_mode}")
+            if source_positions.numel() == 0:
                 continue
             target_event_hi = min(max_event, event_idx + future_k)
             if target_event_hi <= event_idx:
@@ -123,7 +130,7 @@ def gather_jepa_pairs(
             future_mask = valid & (event_ids[b] > event_idx) & (event_ids[b] <= target_event_hi) & (input_ids[b] != eot_token_id)
             if not future_mask.any():
                 continue
-            sources.append(student_hidden[b, eot_positions[-1]])
+            sources.append(student_hidden[b, source_positions[-1]])
             targets.append(teacher_hidden[b, future_mask].mean(dim=0))
     if not sources:
         return None, None
@@ -272,6 +279,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--future_k", type=int, default=1)
     parser.add_argument("--jepa_loss", choices=["cosine", "mse"], default="cosine")
     parser.add_argument("--jepa_weight", type=float, default=1.0)
+    parser.add_argument("--jepa_source", choices=["eot", "last_token"], default="eot")
     parser.add_argument("--eot_token", default=None, help="Event boundary token. Defaults to inferring from valid tokens in --train_parquet.")
     parser.add_argument("--ema_momentum", type=float, default=0.996)
     parser.add_argument("--var_weight", type=float, default=0.0)
@@ -426,6 +434,7 @@ def main() -> None:
                     event_ids,
                     eot_token_id,
                     args.future_k,
+                    args.jepa_source,
                 )
                 if source is None or target is None:
                     jepa_loss = student_out.logits.sum() * 0.0
