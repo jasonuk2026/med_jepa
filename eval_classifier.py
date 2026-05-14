@@ -87,7 +87,14 @@ def append_sequence_token(
     return new_input_ids, new_attention_mask, new_event_ids
 
 
-def pool_hidden(hidden: torch.Tensor, input_ids: torch.Tensor, attention_mask: torch.Tensor, eot_token_id: int, pooling: str) -> torch.Tensor:
+def pool_hidden(
+    hidden: torch.Tensor,
+    input_ids: torch.Tensor,
+    attention_mask: torch.Tensor,
+    event_ids: torch.Tensor,
+    eot_token_id: int,
+    pooling: str,
+) -> torch.Tensor:
     valid = attention_mask.bool()
     if pooling == "mean_all":
         return (hidden * valid.unsqueeze(-1)).sum(dim=1) / valid.sum(dim=1, keepdim=True).clamp_min(1)
@@ -104,6 +111,23 @@ def pool_hidden(hidden: torch.Tensor, input_ids: torch.Tensor, attention_mask: t
     if pooling == "mean_non_eot":
         denom = non_eot.sum(dim=1, keepdim=True).clamp_min(1)
         return (hidden * non_eot.unsqueeze(-1)).sum(dim=1) / denom
+    if pooling == "mean_event_last_token":
+        pooled = []
+        positions = torch.arange(input_ids.size(1), device=input_ids.device)
+        for row_idx in range(input_ids.size(0)):
+            row_event_ids = event_ids[row_idx]
+            row_valid = non_eot[row_idx] & (row_event_ids >= 0)
+            if not row_valid.any():
+                fallback_idx = valid[row_idx].long().sum().clamp_min(1) - 1
+                pooled.append(hidden[row_idx, fallback_idx])
+                continue
+            event_reps = []
+            for event_id in torch.unique(row_event_ids[row_valid], sorted=True):
+                event_mask = row_valid & (row_event_ids == event_id)
+                event_idx = positions[event_mask].max()
+                event_reps.append(hidden[row_idx, event_idx])
+            pooled.append(torch.stack(event_reps, dim=0).mean(dim=0))
+        return torch.stack(pooled, dim=0)
     eot = valid & (input_ids == eot_token_id)
     if pooling == "mean_eot":
         denom = eot.sum(dim=1, keepdim=True).clamp_min(1)
@@ -176,7 +200,7 @@ def evaluate(args: argparse.Namespace, model: nn.Module, head: nn.Module, loader
         input_ids, attention_mask, event_ids = append_sequence_token(input_ids, attention_mask, event_ids, args.append_token_id)
         model_attention_mask = make_model_attention_mask(input_ids, attention_mask, eot_token_id, args.eot_attention)
         out = model(input_ids=input_ids, attention_mask=model_attention_mask, use_cache=False, return_dict=True)
-        pooled = pool_hidden(out.last_hidden_state, input_ids, attention_mask, eot_token_id, args.pooling)
+        pooled = pool_hidden(out.last_hidden_state, input_ids, attention_mask, event_ids, eot_token_id, args.pooling)
         prob = torch.sigmoid(head(pooled).squeeze(-1))
         preds.extend(prob.float().cpu().tolist())
         labels.extend(label.float().cpu().tolist())
@@ -212,7 +236,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--weight_decay", type=float, default=0.0)
     parser.add_argument("--early_stopping_patience", type=int, default=5)
     parser.add_argument("--dtype", choices=["bf16", "fp32"], default="bf16")
-    parser.add_argument("--pooling", choices=["last_eot", "mean_eot", "last_token", "appended_token", "mean_all", "last_non_eot", "mean_non_eot"], default="mean_eot")
+    parser.add_argument(
+        "--pooling",
+        choices=[
+            "last_eot",
+            "mean_eot",
+            "last_token",
+            "appended_token",
+            "mean_all",
+            "last_non_eot",
+            "mean_non_eot",
+            "mean_event_last_token",
+        ],
+        default="mean_eot",
+    )
     parser.add_argument("--eot_attention", choices=["none", "all", "keep_last"], default="none")
     parser.add_argument("--eot_token", default=None, help="Event boundary token. Defaults to inferring from valid tokens in eval train parquet.")
     parser.add_argument("--append_token", default=None, help="Optional token appended to each sequence before pooling, e.g. <|endoftext|> for Qwen3-Embedding.")
@@ -279,7 +316,7 @@ def main() -> None:
             with torch.no_grad():
                 model_attention_mask = make_model_attention_mask(input_ids, attention_mask, eot_token_id, args.eot_attention)
                 out = model(input_ids=input_ids, attention_mask=model_attention_mask, use_cache=False, return_dict=True)
-                pooled = pool_hidden(out.last_hidden_state, input_ids, attention_mask, eot_token_id, args.pooling)
+                pooled = pool_hidden(out.last_hidden_state, input_ids, attention_mask, event_ids, eot_token_id, args.pooling)
             logits = head(pooled).squeeze(-1)
             loss = F.binary_cross_entropy_with_logits(logits.float(), label.float())
             optim.zero_grad(set_to_none=True)
