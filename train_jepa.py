@@ -105,6 +105,7 @@ def gather_jepa_pairs(
     eot_token_id: int,
     future_k: int,
     source_mode: str,
+    target_mode: str,
 ) -> tuple[torch.Tensor | None, torch.Tensor | None]:
     sources: list[torch.Tensor] = []
     targets: list[torch.Tensor] = []
@@ -131,7 +132,18 @@ def gather_jepa_pairs(
             if not future_mask.any():
                 continue
             sources.append(student_hidden[b, source_positions[-1]])
-            targets.append(teacher_hidden[b, future_mask].mean(dim=0))
+            if target_mode == "mean":
+                targets.append(teacher_hidden[b, future_mask].mean(dim=0))
+            elif target_mode == "last_token":
+                target_event_idx = event_idx + future_k
+                target_mask = valid & (event_ids[b] == target_event_idx) & (input_ids[b] != eot_token_id)
+                target_positions = torch.nonzero(target_mask, as_tuple=False).flatten()
+                if target_positions.numel() == 0:
+                    sources.pop()
+                    continue
+                targets.append(teacher_hidden[b, target_positions[-1]])
+            else:
+                raise ValueError(f"unknown jepa_target: {target_mode}")
     if not sources:
         return None, None
     return torch.stack(sources), torch.stack(targets)
@@ -278,6 +290,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--jepa_loss", choices=["cosine", "mse"], default="cosine")
     parser.add_argument("--jepa_weight", type=float, default=1.0)
     parser.add_argument("--jepa_source", choices=["eot", "last_token"], default="eot")
+    parser.add_argument("--jepa_target", choices=["mean", "last_token"], default="mean")
     parser.add_argument("--eot_token", default=None, help="Event boundary token. Defaults to inferring from valid tokens in --train_parquet.")
     parser.add_argument("--ema_momentum", type=float, default=0.996)
     parser.add_argument("--var_weight", type=float, default=0.0)
@@ -373,7 +386,7 @@ def main() -> None:
         f"rows={len(dataset)} world={world} batch_size={args.batch_size} "
         f"effective_batch={effective_batch} accum_steps={accum_steps} "
         f"updates_per_epoch={updates_per_epoch} total_steps={total_steps} max_steps={args.max_steps or 'none'} "
-        f"eot_token_id={eot_token_id}"
+        f"eot_token_id={eot_token_id} jepa_source={args.jepa_source} jepa_target={args.jepa_target}"
     )
     global_step = 0
     update_t0: float | None = None
@@ -433,6 +446,7 @@ def main() -> None:
                     eot_token_id,
                     args.future_k,
                     args.jepa_source,
+                    args.jepa_target,
                 )
                 if source is None or target is None:
                     jepa_loss = student_out.logits.sum() * 0.0

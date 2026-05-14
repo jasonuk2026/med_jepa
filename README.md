@@ -469,6 +469,64 @@ torchrun --standalone --nproc_per_node=4 train_jepa.py \
 --save_every_epoch
 ```
 
+Four-GPU no-EOT JEPA runs with last-token targets. These predict the last
+non-pad, non-EOT token of the exact `future_k`-th future event instead of the
+mean over future event tokens:
+
+```bash
+./run_sm.sh -j pretrain_base_jepa_no_eot_last_to_future_last_jepa0p6_ar1_var0_4gpu_full_epoch -n 4 -c 16 -m 100G -t 24:00:00 \
+torchrun --standalone --nproc_per_node=4 train_jepa.py \
+--model_name Qwen/Qwen3-0.6B-Base \
+--train_parquet data/pretrain/train_no_eot.parquet \
+--output_dir experiments/qwen3_0p6b_base_jepa_no_eot_last_to_future_last_jepa0p6_ar1_var0_4gpu_full_epoch \
+--attn_implementation flash_attention_3 \
+--batch_size 8 \
+--global_batch_size 128 \
+--future_k 2 \
+--jepa_source last_token \
+--jepa_target last_token \
+--jepa_loss mse \
+--jepa_weight 0.6 \
+--ar_weight 1.0 \
+--epochs 1 \
+--lr 2e-4 \
+--warmup_ratio 0.10 \
+--var_weight 0 \
+--dtype bf16 \
+--num_workers 4 \
+--prefetch_factor 4 \
+--persistent_workers \
+--log_steps 100 \
+--save_every_epoch
+```
+
+```bash
+./run_sm.sh -j pretrain_base_jepa_no_eot_last_to_future_last_jepa0p3_ar1_var0_4gpu_full_epoch -n 4 -c 16 -m 100G -t 24:00:00 \
+torchrun --standalone --nproc_per_node=4 train_jepa.py \
+--model_name Qwen/Qwen3-0.6B-Base \
+--train_parquet data/pretrain/train_no_eot.parquet \
+--output_dir experiments/qwen3_0p6b_base_jepa_no_eot_last_to_future_last_jepa0p3_ar1_var0_4gpu_full_epoch \
+--attn_implementation flash_attention_3 \
+--batch_size 8 \
+--global_batch_size 128 \
+--future_k 2 \
+--jepa_source last_token \
+--jepa_target last_token \
+--jepa_loss mse \
+--jepa_weight 0.3 \
+--ar_weight 1.0 \
+--epochs 1 \
+--lr 2e-4 \
+--warmup_ratio 0.10 \
+--var_weight 0 \
+--dtype bf16 \
+--num_workers 4 \
+--prefetch_factor 4 \
+--persistent_workers \
+--log_steps 100 \
+--save_every_epoch
+```
+
 ## Build evaluation data
 
 Evaluation labels are generated from the MEDS timeline with ETHOS-style task logic. For
