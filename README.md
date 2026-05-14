@@ -244,6 +244,10 @@ torchrun --standalone --nproc_per_node=4 train_jepa.py \
 Four-GPU full-epoch Slurm run with Qwen3 Base and MSE JEPA loss on no-EOT
 pretraining data. This uses the last token of each event as the JEPA source:
 
+`--ar_weight` is the global coefficient applied after the AR cross-entropy is
+averaged. `--ar_eot_weight` only controls the relative weight of EOT targets in
+AR, and is irrelevant for no-EOT pretraining data.
+
 ```bash
 ./run_sm.sh -j pretrain_base_jepa_no_eot_last_token_4gpu_future2_mse_warmup10_full_epoch -n 4 -c 16 -m 100G -t 24:00:00 \
 torchrun --standalone --nproc_per_node=4 train_jepa.py \

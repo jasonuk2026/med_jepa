@@ -206,13 +206,11 @@ def jepa_loss_fn(pred: torch.Tensor, target: torch.Tensor, loss_type: str, var_g
     return representation_loss, var_loss, metrics
 
 
-def ar_loss_fn(logits: torch.Tensor, input_ids: torch.Tensor, attention_mask: torch.Tensor, eot_token_id: int, token_weight: float, eot_weight: float) -> torch.Tensor:
-    if token_weight <= 0 and eot_weight <= 0:
-        return logits.sum() * 0.0
+def ar_loss_fn(logits: torch.Tensor, input_ids: torch.Tensor, attention_mask: torch.Tensor, eot_token_id: int, eot_weight: float) -> torch.Tensor:
     shift_logits = logits[:, :-1].contiguous()
     targets = input_ids[:, 1:].contiguous()
     valid = attention_mask[:, 1:].bool()
-    weights = torch.full_like(targets, token_weight, dtype=shift_logits.dtype)
+    weights = torch.ones_like(targets, dtype=shift_logits.dtype)
     weights = torch.where(targets == eot_token_id, torch.full_like(weights, eot_weight), weights)
     weights = weights * valid.to(weights.dtype)
     flat_loss = F.cross_entropy(shift_logits.view(-1, shift_logits.size(-1)), targets.view(-1), reduction="none")
@@ -450,8 +448,12 @@ def main() -> None:
                 else:
                     pred = predictor(source)
                     jepa_loss, var_loss, jepa_metrics = jepa_loss_fn(pred, target, args.jepa_loss, args.var_gamma)
-            ar_loss = ar_loss_fn(student_out.logits, input_ids, attention_mask, eot_token_id, args.ar_weight, args.ar_eot_weight)
-            loss = (args.jepa_weight * jepa_loss + args.var_weight * var_loss + ar_loss) / accum_steps
+            if args.ar_weight <= 0:
+                ar_loss = student_out.logits.sum() * 0.0
+            else:
+                ar_loss = ar_loss_fn(student_out.logits, input_ids, attention_mask, eot_token_id, args.ar_eot_weight)
+            weighted_ar_loss = args.ar_weight * ar_loss
+            loss = (args.jepa_weight * jepa_loss + args.var_weight * var_loss + weighted_ar_loss) / accum_steps
             loss.backward()
 
             if (step + 1) % accum_steps == 0:
@@ -472,6 +474,7 @@ def main() -> None:
                     log_loss = reduce_mean(loss.detach() * accum_steps)
                     log_jepa = reduce_mean(jepa_loss.detach())
                     log_ar = reduce_mean(ar_loss.detach())
+                    log_weighted_ar = reduce_mean(weighted_ar_loss.detach())
                     log_var = reduce_mean(var_loss.detach())
                     log_mse = reduce_mean(jepa_metrics["mse"])
                     log_cosine = reduce_mean(jepa_metrics["cosine_sim"])
@@ -483,7 +486,7 @@ def main() -> None:
                     eta = format_eta(avg_step_seconds * (total_steps - global_step))
                     rank0_print(
                         f"epoch={epoch + 1} step={global_step} loss={log_loss.item():.4f} "
-                        f"jepa={log_jepa.item():.4f} ar={log_ar.item():.4f} "
+                        f"jepa={log_jepa.item():.4f} ar={log_ar.item():.4f} ar_weighted={log_weighted_ar.item():.4f} "
                         f"var={log_var.item():.4f} mse={log_mse.item():.4f} cos={log_cosine.item():.4f} "
                         f"pred_norm={log_pred_norm.item():.2f} target_norm={log_target_norm.item():.2f} "
                         f"pred_std={log_pred_std.item():.4f} target_std={log_target_std.item():.4f} "
