@@ -13,6 +13,12 @@ Minimal Event-JEPA pipeline for coherent MIMIC MEDS event streams.
 - Pretraining and evaluation data extraction require explicit coherent MEDS/raw-table paths.
 - Data extraction uses `multiprocessing` process pools, not threads.
 
+Experiment narrative and interpretation:
+
+- [Event-level JEPA experiment narrative](analysis/jepa_experiment_narrative.md)
+- [Evaluation result table](analysis/eval_results_table.md)
+- [Evaluation result plots](analysis/eval_results_table.png), [metric line plot](analysis/eval_metrics_line.png)
+
 ## Build pretraining data
 
 ```bash
