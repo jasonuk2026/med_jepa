@@ -931,6 +931,100 @@ torchrun --standalone --nproc_per_node=4 eval_classifier.py \
 --num_workers 4
 ```
 
+Four-GPU linear probes for the fixed-weight no-EOT last-to-future-last JEPA
+checkpoints. These use `mean_event_last_token` pooling to match the JEPA
+source/target representation:
+
+```bash
+./run_sm.sh -j eval_base_jepa_no_eot_last_to_future_last_jepa1_ar0p3_mean_event_last_token_linear_4gpu -n 4 -c 16 -m 100G -t 06:00:00 \
+torchrun --standalone --nproc_per_node=4 eval_classifier.py \
+--pretrained_dir experiments/qwen3_0p6b_base_jepa_no_eot_last_to_future_last_jepa1_ar0p3_var0_4gpu_full_epoch/final \
+--eval_parquet_dir data/eval \
+--task icu_mortality \
+--output_dir experiments/classifier/base_jepa_no_eot_last_to_future_last_jepa1_ar0p3_mean_event_last_token_linear_4gpu \
+--pooling mean_event_last_token \
+--eot_attention all \
+--eot_token '<|im_end|>' \
+--attn_implementation flash_attention_3 \
+--dtype bf16 \
+--batch_size 8 \
+--epochs 6 \
+--lr 1e-4 \
+--num_workers 4
+```
+
+```bash
+./run_sm.sh -j eval_base_jepa_no_eot_last_to_future_last_jepa1_ar0p6_mean_event_last_token_linear_4gpu -n 4 -c 16 -m 100G -t 06:00:00 \
+torchrun --standalone --nproc_per_node=4 eval_classifier.py \
+--pretrained_dir experiments/qwen3_0p6b_base_jepa_no_eot_last_to_future_last_jepa1_ar0p6_var0_4gpu_full_epoch/final \
+--eval_parquet_dir data/eval \
+--task icu_mortality \
+--output_dir experiments/classifier/base_jepa_no_eot_last_to_future_last_jepa1_ar0p6_mean_event_last_token_linear_4gpu \
+--pooling mean_event_last_token \
+--eot_attention all \
+--eot_token '<|im_end|>' \
+--attn_implementation flash_attention_3 \
+--dtype bf16 \
+--batch_size 8 \
+--epochs 6 \
+--lr 1e-4 \
+--num_workers 4
+```
+
+```bash
+./run_sm.sh -j eval_base_jepa_no_eot_last_to_future_last_jepa1_ar1_mean_event_last_token_linear_4gpu -n 4 -c 16 -m 100G -t 06:00:00 \
+torchrun --standalone --nproc_per_node=4 eval_classifier.py \
+--pretrained_dir experiments/qwen3_0p6b_base_jepa_no_eot_last_to_future_last_jepa1_ar1_var0_4gpu_full_epoch/final \
+--eval_parquet_dir data/eval \
+--task icu_mortality \
+--output_dir experiments/classifier/base_jepa_no_eot_last_to_future_last_jepa1_ar1_mean_event_last_token_linear_4gpu \
+--pooling mean_event_last_token \
+--eot_attention all \
+--eot_token '<|im_end|>' \
+--attn_implementation flash_attention_3 \
+--dtype bf16 \
+--batch_size 8 \
+--epochs 6 \
+--lr 1e-4 \
+--num_workers 4
+```
+
+```bash
+./run_sm.sh -j eval_base_jepa_no_eot_last_to_future_last_jepa0p6_ar1_mean_event_last_token_linear_4gpu -n 4 -c 16 -m 100G -t 06:00:00 \
+torchrun --standalone --nproc_per_node=4 eval_classifier.py \
+--pretrained_dir experiments/qwen3_0p6b_base_jepa_no_eot_last_to_future_last_jepa0p6_ar1_var0_4gpu_full_epoch/final \
+--eval_parquet_dir data/eval \
+--task icu_mortality \
+--output_dir experiments/classifier/base_jepa_no_eot_last_to_future_last_jepa0p6_ar1_mean_event_last_token_linear_4gpu \
+--pooling mean_event_last_token \
+--eot_attention all \
+--eot_token '<|im_end|>' \
+--attn_implementation flash_attention_3 \
+--dtype bf16 \
+--batch_size 8 \
+--epochs 6 \
+--lr 1e-4 \
+--num_workers 4
+```
+
+```bash
+./run_sm.sh -j eval_base_jepa_no_eot_last_to_future_last_jepa0p3_ar1_mean_event_last_token_linear_4gpu -n 4 -c 16 -m 100G -t 06:00:00 \
+torchrun --standalone --nproc_per_node=4 eval_classifier.py \
+--pretrained_dir experiments/qwen3_0p6b_base_jepa_no_eot_last_to_future_last_jepa0p3_ar1_var0_4gpu_full_epoch/final \
+--eval_parquet_dir data/eval \
+--task icu_mortality \
+--output_dir experiments/classifier/base_jepa_no_eot_last_to_future_last_jepa0p3_ar1_mean_event_last_token_linear_4gpu \
+--pooling mean_event_last_token \
+--eot_attention all \
+--eot_token '<|im_end|>' \
+--attn_implementation flash_attention_3 \
+--dtype bf16 \
+--batch_size 8 \
+--epochs 6 \
+--lr 1e-4 \
+--num_workers 4
+```
+
 Four-GPU Qwen3-Embedding linear-probe baseline. Qwen3-Embedding uses a final
 `<|endoftext|>` token as the sequence embedding position. The packed EHR
 events use `<|im_end|>` as event boundaries, so this masks those boundary
