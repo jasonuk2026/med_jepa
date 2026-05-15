@@ -80,12 +80,13 @@ def build_chunk_views(
     attention_mask: torch.Tensor,
     num_chunks: int,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Expand each sample into one AR view plus K-1 chunk JEPA views."""
+    """Expand each sample into one AR view plus independent source/target JEPA views."""
     if num_chunks < 2:
         raise ValueError("--num_chunks must be at least 2")
     batch, seq_len = input_ids.shape
-    expanded_ids = input_ids.repeat_interleave(num_chunks, dim=0)
-    expanded_mask = attention_mask.repeat_interleave(num_chunks, dim=0).clone()
+    views_per_sample = 1 + 2 * (num_chunks - 1)
+    expanded_ids = input_ids.new_full((batch * views_per_sample, seq_len), 0)
+    expanded_mask = attention_mask.new_zeros((batch * views_per_sample, seq_len))
     source_rows: list[int] = []
     source_pos: list[int] = []
     target_rows: list[int] = []
@@ -95,24 +96,27 @@ def build_chunk_views(
 
     for b, length_value in enumerate(lengths):
         length = int(length_value)
-        base = b * num_chunks
+        base = b * views_per_sample
+        expanded_ids[base] = input_ids[b]
+        expanded_mask[base] = attention_mask[b]
         if length < num_chunks:
-            expanded_mask[base + 1 : base + num_chunks].zero_()
             continue
         for chunk_idx in range(1, num_chunks):
-            row = base + chunk_idx
             source_end = (chunk_idx * length) // num_chunks - 1
-            target_end_exclusive = ((chunk_idx + 1) * length) // num_chunks
-            target_end = target_end_exclusive - 1
-            if source_end < 0 or target_end <= source_end:
-                expanded_mask[row].zero_()
+            target_start = source_end + 1
+            target_length = length - target_start
+            if source_end < 0 or target_length <= 0:
                 continue
-            if target_end + 1 < seq_len:
-                expanded_mask[row, target_end + 1 :].zero_()
-            source_rows.append(row)
+            source_row = base + 1 + 2 * (chunk_idx - 1)
+            target_row = source_row + 1
+            expanded_ids[source_row, : source_end + 1] = input_ids[b, : source_end + 1]
+            expanded_mask[source_row, : source_end + 1] = 1
+            expanded_ids[target_row, :target_length] = input_ids[b, target_start:length]
+            expanded_mask[target_row, :target_length] = 1
+            source_rows.append(source_row)
             source_pos.append(source_end)
-            target_rows.append(row)
-            target_pos.append(target_end)
+            target_rows.append(target_row)
+            target_pos.append(target_length - 1)
 
     index_dtype = torch.long
     return (
@@ -297,7 +301,8 @@ def main() -> None:
     rank0_print(
         f"rows={len(dataset)} world={world} batch_size={args.batch_size} effective_batch={effective_batch} "
         f"accum_steps={accum_steps} updates_per_epoch={updates_per_epoch} total_steps={total_steps} "
-        f"max_steps={args.max_steps or 'none'} num_chunks={args.num_chunks} jepa_lambda={args.jepa_lambda}"
+        f"max_steps={args.max_steps or 'none'} num_chunks={args.num_chunks} "
+        f"views_per_sample={1 + 2 * (args.num_chunks - 1)} jepa_lambda={args.jepa_lambda}"
     )
 
     global_step = 0
@@ -330,7 +335,8 @@ def main() -> None:
                 use_cache=False,
                 return_dict=True,
             )
-            ar_logits = outputs.logits[0 :: args.num_chunks]
+            views_per_sample = 1 + 2 * (args.num_chunks - 1)
+            ar_logits = outputs.logits[0::views_per_sample]
             ar_loss = ar_loss_fn(ar_logits, input_ids, attention_mask)
             jepa_loss, jepa_metrics = chunk_jepa_loss_fn(
                 outputs.hidden_states[-1],
