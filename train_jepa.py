@@ -193,9 +193,9 @@ def infer_eot_token_id(train_parquet: Path, tokenizer: Any, override_token: str 
 
 
 def jepa_loss_fn(pred: torch.Tensor, target: torch.Tensor, loss_type: str, var_gamma: float) -> tuple[torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
-    mse = F.mse_loss(pred.float(), target.detach().float()).to(pred.dtype)
-    cosine_sim = (F.normalize(pred, dim=-1) * F.normalize(target.detach(), dim=-1)).sum(dim=-1).mean()
-    cosine = 2.0 - 2.0 * cosine_sim
+    mse = F.mse_loss(pred.float(), target.detach().float())
+    cosine_sim = (F.normalize(pred.float(), dim=-1) * F.normalize(target.detach().float(), dim=-1)).sum(dim=-1).mean()
+    cosine = 2.0 - 2.0 * cosine_sim.float()
     if loss_type == "mse":
         representation_loss = mse
     elif loss_type == "cosine":
@@ -203,10 +203,10 @@ def jepa_loss_fn(pred: torch.Tensor, target: torch.Tensor, loss_type: str, var_g
     else:
         raise ValueError(f"unknown JEPA loss: {loss_type}")
     if pred.size(0) < 2 or var_gamma <= 0:
-        var_loss = pred.new_zeros(())
+        var_loss = pred.float().new_zeros(())
     else:
         std = torch.sqrt(pred.float().var(dim=0, unbiased=False) + 1e-4)
-        var_loss = F.relu(var_gamma - std).mean().to(pred.dtype)
+        var_loss = F.relu(var_gamma - std).mean()
     metrics = {
         "mse": mse.detach(),
         "cosine_sim": cosine_sim.detach(),
@@ -219,7 +219,7 @@ def jepa_loss_fn(pred: torch.Tensor, target: torch.Tensor, loss_type: str, var_g
 
 
 def ar_loss_fn(logits: torch.Tensor, input_ids: torch.Tensor, attention_mask: torch.Tensor, eot_token_id: int, eot_weight: float) -> torch.Tensor:
-    shift_logits = logits[:, :-1].contiguous()
+    shift_logits = logits[:, :-1].float().contiguous()
     targets = input_ids[:, 1:].contiguous()
     valid = attention_mask[:, 1:].bool()
     weights = torch.ones_like(targets, dtype=shift_logits.dtype)
@@ -417,8 +417,8 @@ def main() -> None:
                 return_dict=True,
             )
             if args.jepa_weight <= 0:
-                jepa_loss = student_out.logits.sum() * 0.0
-                var_loss = student_out.logits.sum() * 0.0
+                jepa_loss = student_out.logits.float().sum() * 0.0
+                var_loss = student_out.logits.float().sum() * 0.0
                 jepa_metrics = {
                     "mse": jepa_loss.detach(),
                     "cosine_sim": jepa_loss.detach(),
@@ -449,8 +449,8 @@ def main() -> None:
                     args.jepa_target,
                 )
                 if source is None or target is None:
-                    jepa_loss = student_out.logits.sum() * 0.0
-                    var_loss = student_out.logits.sum() * 0.0
+                    jepa_loss = student_out.logits.float().sum() * 0.0
+                    var_loss = student_out.logits.float().sum() * 0.0
                     jepa_metrics = {
                         "mse": jepa_loss.detach(),
                         "cosine_sim": jepa_loss.detach(),
@@ -463,7 +463,7 @@ def main() -> None:
                     pred = predictor(source)
                     jepa_loss, var_loss, jepa_metrics = jepa_loss_fn(pred, target, args.jepa_loss, args.var_gamma)
             if args.ar_weight <= 0:
-                ar_loss = student_out.logits.sum() * 0.0
+                ar_loss = student_out.logits.float().sum() * 0.0
             else:
                 ar_loss = ar_loss_fn(student_out.logits, input_ids, attention_mask, eot_token_id, args.ar_eot_weight)
             weighted_ar_loss = args.ar_weight * ar_loss

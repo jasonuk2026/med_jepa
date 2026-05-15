@@ -126,7 +126,7 @@ def build_chunk_views(
 
 
 def ar_loss_fn(logits: torch.Tensor, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
-    shift_logits = logits[:, :-1].contiguous()
+    shift_logits = logits[:, :-1].float().contiguous()
     targets = input_ids[:, 1:].contiguous()
     valid = attention_mask[:, 1:].bool()
     flat_loss = F.cross_entropy(shift_logits.view(-1, shift_logits.size(-1)), targets.view(-1), reduction="none")
@@ -142,7 +142,7 @@ def chunk_jepa_loss_fn(
     target_pos: torch.Tensor,
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
     if source_rows.numel() == 0:
-        zero = hidden_states.sum() * 0.0
+        zero = hidden_states.float().sum() * 0.0
         metrics = {
             "cosine_sim": zero.detach(),
             "source_norm": zero.detach(),
@@ -164,7 +164,7 @@ def chunk_jepa_loss_fn(
         "target_std": target.detach().float().std(dim=0, unbiased=False).mean(),
         "pairs": torch.tensor(float(source_rows.numel()), dtype=torch.float32, device=hidden_states.device),
     }
-    return loss.to(hidden_states.dtype), metrics
+    return loss, metrics
 
 
 def save_checkpoint(args: argparse.Namespace, model: nn.Module, tokenizer: Any, name: str) -> None:
