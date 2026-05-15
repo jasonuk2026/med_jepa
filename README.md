@@ -614,8 +614,8 @@ torchrun --standalone --nproc_per_node=4 train_jepa.py \
 --save_every_epoch
 ```
 
-Four-GPU chunk JEPA run on the no-EOT pretraining data. `--num_chunks 4` splits
-each sample into four time-ordered chunks, uses the full sequence view for AR,
+Four-GPU chunk JEPA run on the no-EOT pretraining data. `--num_chunks 2` splits
+each sample into two time-ordered chunks, uses the full sequence view for AR,
 and aligns independently forwarded prefix and suffix last-token states with
 cosine loss. Each sample expands to `1 + 2 * (num_chunks - 1)` views.
 
@@ -625,14 +625,14 @@ Single-GPU short test:
 python train_chunk_jepa.py \
 --model_name Qwen/Qwen3-0.6B-Base \
 --train_parquet data/pretrain/train_no_eot.parquet \
---output_dir experiments/qwen3_0p6b_base_chunk_jepa_no_eot_k4_split_views_lambda1_1gpu_test \
+--output_dir experiments/qwen3_0p6b_base_chunk_jepa_no_eot_k2_split_views_lambda1_1gpu_test \
 --attn_implementation flash_attention_3 \
---batch_size 1 \
+--compile \
+--batch_size 4 \
 --global_batch_size 16 \
---num_chunks 4 \
+--num_chunks 2 \
 --jepa_lambda 1.0 \
 --epochs 1 \
---max_steps 200 \
 --lr 2e-4 \
 --warmup_ratio 0.10 \
 --dtype bf16 \
@@ -644,15 +644,16 @@ python train_chunk_jepa.py \
 ```
 
 ```bash
-./run_sm.sh -j pretrain_base_chunk_jepa_no_eot_k4_split_views_lambda1_4gpu_full_epoch -n 4 -c 16 -m 100G -t 24:00:00 \
+./run_sm.sh -j pretrain_base_chunk_jepa_no_eot_k2_split_views_lambda1_4gpu_full_epoch -n 4 -c 16 -m 100G -t 24:00:00 \
 torchrun --standalone --nproc_per_node=4 train_chunk_jepa.py \
 --model_name Qwen/Qwen3-0.6B-Base \
 --train_parquet data/pretrain/train_no_eot.parquet \
---output_dir experiments/qwen3_0p6b_base_chunk_jepa_no_eot_k4_split_views_lambda1_4gpu_full_epoch \
+--output_dir experiments/qwen3_0p6b_base_chunk_jepa_no_eot_k2_split_views_lambda1_4gpu_full_epoch \
 --attn_implementation flash_attention_3 \
---batch_size 2 \
+--compile \
+--batch_size 4 \
 --global_batch_size 128 \
---num_chunks 4 \
+--num_chunks 2 \
 --jepa_lambda 1.0 \
 --epochs 1 \
 --lr 2e-4 \
