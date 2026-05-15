@@ -932,17 +932,17 @@ torchrun --standalone --nproc_per_node=4 eval_classifier.py \
 ```
 
 Four-GPU linear probes for the fixed-weight no-EOT last-to-future-last JEPA
-checkpoints. These use `mean_event_last_token` pooling to match the JEPA
-source/target representation:
+checkpoints. These use `last_non_eot` pooling to match the best-performing
+no-EOT JEPA evaluation setup from the previous runs:
 
 ```bash
-./run_sm.sh -j eval_base_jepa_no_eot_last_to_future_last_jepa1_ar0p3_mean_event_last_token_linear_4gpu -n 4 -c 16 -m 100G -t 06:00:00 \
+./run_sm.sh -j eval_base_jepa_no_eot_last_to_future_last_jepa1_ar0p3_last_non_eot_linear_4gpu -n 4 -c 16 -m 100G -t 06:00:00 \
 torchrun --standalone --nproc_per_node=4 eval_classifier.py \
 --pretrained_dir experiments/qwen3_0p6b_base_jepa_no_eot_last_to_future_last_jepa1_ar0p3_var0_4gpu_full_epoch/final \
 --eval_parquet_dir data/eval \
 --task icu_mortality \
---output_dir experiments/classifier/base_jepa_no_eot_last_to_future_last_jepa1_ar0p3_mean_event_last_token_linear_4gpu \
---pooling mean_event_last_token \
+--output_dir experiments/classifier/base_jepa_no_eot_last_to_future_last_jepa1_ar0p3_last_non_eot_linear_4gpu \
+--pooling last_non_eot \
 --eot_attention all \
 --eot_token '<|im_end|>' \
 --attn_implementation flash_attention_3 \
@@ -954,13 +954,13 @@ torchrun --standalone --nproc_per_node=4 eval_classifier.py \
 ```
 
 ```bash
-./run_sm.sh -j eval_base_jepa_no_eot_last_to_future_last_jepa1_ar0p6_mean_event_last_token_linear_4gpu -n 4 -c 16 -m 100G -t 06:00:00 \
+./run_sm.sh -j eval_base_jepa_no_eot_last_to_future_last_jepa1_ar0p6_last_non_eot_linear_4gpu -n 4 -c 16 -m 100G -t 06:00:00 \
 torchrun --standalone --nproc_per_node=4 eval_classifier.py \
 --pretrained_dir experiments/qwen3_0p6b_base_jepa_no_eot_last_to_future_last_jepa1_ar0p6_var0_4gpu_full_epoch/final \
 --eval_parquet_dir data/eval \
 --task icu_mortality \
---output_dir experiments/classifier/base_jepa_no_eot_last_to_future_last_jepa1_ar0p6_mean_event_last_token_linear_4gpu \
---pooling mean_event_last_token \
+--output_dir experiments/classifier/base_jepa_no_eot_last_to_future_last_jepa1_ar0p6_last_non_eot_linear_4gpu \
+--pooling last_non_eot \
 --eot_attention all \
 --eot_token '<|im_end|>' \
 --attn_implementation flash_attention_3 \
@@ -972,13 +972,13 @@ torchrun --standalone --nproc_per_node=4 eval_classifier.py \
 ```
 
 ```bash
-./run_sm.sh -j eval_base_jepa_no_eot_last_to_future_last_jepa1_ar1_mean_event_last_token_linear_4gpu -n 4 -c 16 -m 100G -t 06:00:00 \
+./run_sm.sh -j eval_base_jepa_no_eot_last_to_future_last_jepa1_ar1_last_non_eot_linear_4gpu -n 4 -c 16 -m 100G -t 06:00:00 \
 torchrun --standalone --nproc_per_node=4 eval_classifier.py \
 --pretrained_dir experiments/qwen3_0p6b_base_jepa_no_eot_last_to_future_last_jepa1_ar1_var0_4gpu_full_epoch/final \
 --eval_parquet_dir data/eval \
 --task icu_mortality \
---output_dir experiments/classifier/base_jepa_no_eot_last_to_future_last_jepa1_ar1_mean_event_last_token_linear_4gpu \
---pooling mean_event_last_token \
+--output_dir experiments/classifier/base_jepa_no_eot_last_to_future_last_jepa1_ar1_last_non_eot_linear_4gpu \
+--pooling last_non_eot \
 --eot_attention all \
 --eot_token '<|im_end|>' \
 --attn_implementation flash_attention_3 \
@@ -990,13 +990,13 @@ torchrun --standalone --nproc_per_node=4 eval_classifier.py \
 ```
 
 ```bash
-./run_sm.sh -j eval_base_jepa_no_eot_last_to_future_last_jepa0p6_ar1_mean_event_last_token_linear_4gpu -n 4 -c 16 -m 100G -t 06:00:00 \
+./run_sm.sh -j eval_base_jepa_no_eot_last_to_future_last_jepa0p6_ar1_last_non_eot_linear_4gpu -n 4 -c 16 -m 100G -t 06:00:00 \
 torchrun --standalone --nproc_per_node=4 eval_classifier.py \
 --pretrained_dir experiments/qwen3_0p6b_base_jepa_no_eot_last_to_future_last_jepa0p6_ar1_var0_4gpu_full_epoch/final \
 --eval_parquet_dir data/eval \
 --task icu_mortality \
---output_dir experiments/classifier/base_jepa_no_eot_last_to_future_last_jepa0p6_ar1_mean_event_last_token_linear_4gpu \
---pooling mean_event_last_token \
+--output_dir experiments/classifier/base_jepa_no_eot_last_to_future_last_jepa0p6_ar1_last_non_eot_linear_4gpu \
+--pooling last_non_eot \
 --eot_attention all \
 --eot_token '<|im_end|>' \
 --attn_implementation flash_attention_3 \
@@ -1008,13 +1008,13 @@ torchrun --standalone --nproc_per_node=4 eval_classifier.py \
 ```
 
 ```bash
-./run_sm.sh -j eval_base_jepa_no_eot_last_to_future_last_jepa0p3_ar1_mean_event_last_token_linear_4gpu -n 4 -c 16 -m 100G -t 06:00:00 \
+./run_sm.sh -j eval_base_jepa_no_eot_last_to_future_last_jepa0p3_ar1_last_non_eot_linear_4gpu -n 4 -c 16 -m 100G -t 06:00:00 \
 torchrun --standalone --nproc_per_node=4 eval_classifier.py \
 --pretrained_dir experiments/qwen3_0p6b_base_jepa_no_eot_last_to_future_last_jepa0p3_ar1_var0_4gpu_full_epoch/final \
 --eval_parquet_dir data/eval \
 --task icu_mortality \
---output_dir experiments/classifier/base_jepa_no_eot_last_to_future_last_jepa0p3_ar1_mean_event_last_token_linear_4gpu \
---pooling mean_event_last_token \
+--output_dir experiments/classifier/base_jepa_no_eot_last_to_future_last_jepa0p3_ar1_last_non_eot_linear_4gpu \
+--pooling last_non_eot \
 --eot_attention all \
 --eot_token '<|im_end|>' \
 --attn_implementation flash_attention_3 \
