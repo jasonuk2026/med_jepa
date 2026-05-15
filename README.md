@@ -619,6 +619,30 @@ each sample into four time-ordered chunks, uses the full sequence view for AR,
 and aligns each prefix last-token state to the next chunk last-token state with
 cosine loss:
 
+Single-GPU short test:
+
+```bash
+python train_chunk_jepa.py \
+--model_name Qwen/Qwen3-0.6B-Base \
+--train_parquet data/pretrain/train_no_eot.parquet \
+--output_dir experiments/qwen3_0p6b_base_chunk_jepa_no_eot_k4_lambda1_1gpu_test \
+--attn_implementation flash_attention_3 \
+--batch_size 2 \
+--global_batch_size 16 \
+--num_chunks 4 \
+--jepa_lambda 1.0 \
+--epochs 1 \
+--max_steps 200 \
+--lr 2e-4 \
+--warmup_ratio 0.10 \
+--dtype bf16 \
+--num_workers 4 \
+--prefetch_factor 4 \
+--persistent_workers \
+--log_steps 1 \
+--save_every_epoch
+```
+
 ```bash
 ./run_sm.sh -j pretrain_base_chunk_jepa_no_eot_k4_lambda1_4gpu_full_epoch -n 4 -c 16 -m 100G -t 24:00:00 \
 torchrun --standalone --nproc_per_node=4 train_chunk_jepa.py \
