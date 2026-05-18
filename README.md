@@ -1185,6 +1185,45 @@ torchrun --standalone --nproc_per_node=4 eval_classifier.py \
 --num_workers 4
 ```
 
+Four-GPU linear probes for the STP-JEPA no-EOT checkpoints. These use
+`last_non_eot` pooling, matching the no-EOT pretraining/evaluation setup:
+
+```bash
+./run_sm.sh -j eval_base_stp_jepa_no_eot_patch512_768_normsqrt_lambda1_last_non_eot_linear_4gpu -n 4 -c 16 -m 100G -t 06:00:00 \
+torchrun --standalone --nproc_per_node=4 eval_classifier.py \
+--pretrained_dir experiments/qwen3_0p6b_base_stp_jepa_no_eot_patch512_768_normsqrt_lambda1_4gpu_full_epoch/final \
+--eval_parquet_dir data/eval \
+--task icu_mortality \
+--output_dir experiments/classifier/base_stp_jepa_no_eot_patch512_768_normsqrt_lambda1_last_non_eot_linear_4gpu \
+--pooling last_non_eot \
+--eot_attention all \
+--eot_token '<|im_end|>' \
+--attn_implementation flash_attention_3 \
+--dtype bf16 \
+--batch_size 8 \
+--epochs 6 \
+--lr 1e-4 \
+--num_workers 4
+```
+
+```bash
+./run_sm.sh -j eval_base_stp_jepa_no_eot_patch512_768_normnone_lambda1_last_non_eot_linear_4gpu -n 4 -c 16 -m 100G -t 06:00:00 \
+torchrun --standalone --nproc_per_node=4 eval_classifier.py \
+--pretrained_dir experiments/qwen3_0p6b_base_stp_jepa_no_eot_patch512_768_normnone_lambda1_4gpu_full_epoch/final \
+--eval_parquet_dir data/eval \
+--task icu_mortality \
+--output_dir experiments/classifier/base_stp_jepa_no_eot_patch512_768_normnone_lambda1_last_non_eot_linear_4gpu \
+--pooling last_non_eot \
+--eot_attention all \
+--eot_token '<|im_end|>' \
+--attn_implementation flash_attention_3 \
+--dtype bf16 \
+--batch_size 8 \
+--epochs 6 \
+--lr 1e-4 \
+--num_workers 4
+```
+
 Four-GPU Qwen3-Embedding linear-probe baseline. Qwen3-Embedding uses a final
 `<|endoftext|>` token as the sequence embedding position. The packed EHR
 events use `<|im_end|>` as event boundaries, so this masks those boundary
