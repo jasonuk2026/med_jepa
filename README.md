@@ -677,13 +677,14 @@ Single-GPU short test:
 python train_stp_jepa.py \
 --model_name Qwen/Qwen3-0.6B-Base \
 --train_parquet data/pretrain/train_no_eot.parquet \
---output_dir experiments/qwen3_0p6b_base_stp_jepa_no_eot_patch256_lambda1_1gpu_test \
+--output_dir experiments/qwen3_0p6b_base_stp_jepa_no_eot_patch512_768_normsqrt_lambda1_1gpu_test \
 --attn_implementation flash_attention_3 \
 --compile \
---batch_size 4 \
---global_batch_size 16 \
+--batch_size 10 \
+--global_batch_size 20 \
 --stp_lambda 1.0 \
---max_patch_length 256 \
+--min_patch_length 512 \
+--max_patch_length 768 \
 --length_norm sqrt \
 --patch_times 1 \
 --epochs 1 \
@@ -699,18 +700,47 @@ python train_stp_jepa.py \
 ```
 
 ```bash
-./run_sm.sh -j pretrain_base_stp_jepa_no_eot_patch256_lambda1_4gpu_full_epoch -n 4 -c 16 -m 100G -t 24:00:00 \
+./run_sm.sh -j pretrain_base_stp_jepa_no_eot_patch512_768_normsqrt_lambda1_4gpu_full_epoch -n 4 -c 16 -m 100G -t 12:00:00 \
 torchrun --standalone --nproc_per_node=4 train_stp_jepa.py \
 --model_name Qwen/Qwen3-0.6B-Base \
 --train_parquet data/pretrain/train_no_eot.parquet \
---output_dir experiments/qwen3_0p6b_base_stp_jepa_no_eot_patch256_lambda1_4gpu_full_epoch \
+--output_dir experiments/qwen3_0p6b_base_stp_jepa_no_eot_patch512_768_normsqrt_lambda1_4gpu_full_epoch \
 --attn_implementation flash_attention_3 \
 --compile \
---batch_size 8 \
---global_batch_size 128 \
+--batch_size 10 \
+--global_batch_size 160 \
 --stp_lambda 1.0 \
---max_patch_length 256 \
+--min_patch_length 512 \
+--max_patch_length 768 \
 --length_norm sqrt \
+--patch_times 1 \
+--epochs 1 \
+--lr 2e-4 \
+--warmup_ratio 0.10 \
+--dtype bf16 \
+--num_workers 4 \
+--prefetch_factor 4 \
+--persistent_workers \
+--log_steps 100 \
+--save_every_epoch
+```
+
+Same STP setting without length normalization:
+
+```bash
+./run_sm.sh -j pretrain_base_stp_jepa_no_eot_patch512_768_normnone_lambda1_4gpu_full_epoch -n 4 -c 16 -m 100G -t 12:00:00 \
+torchrun --standalone --nproc_per_node=4 train_stp_jepa.py \
+--model_name Qwen/Qwen3-0.6B-Base \
+--train_parquet data/pretrain/train_no_eot.parquet \
+--output_dir experiments/qwen3_0p6b_base_stp_jepa_no_eot_patch512_768_normnone_lambda1_4gpu_full_epoch \
+--attn_implementation flash_attention_3 \
+--compile \
+--batch_size 10 \
+--global_batch_size 160 \
+--stp_lambda 1.0 \
+--min_patch_length 512 \
+--max_patch_length 768 \
+--length_norm none \
 --patch_times 1 \
 --epochs 1 \
 --lr 2e-4 \

@@ -104,27 +104,34 @@ def normalize_span_repr(x: torch.Tensor, length: int, mode: str) -> torch.Tensor
     raise ValueError(f"unknown length_norm: {mode}")
 
 
-def sample_patch(length: int, max_length: int, generator: torch.Generator, zero_start: bool) -> tuple[int, int] | None:
+def sample_patch(
+    length: int,
+    min_length: int,
+    max_length: int,
+    generator: torch.Generator,
+    zero_start: bool,
+) -> tuple[int, int] | None:
     if length < 2:
         return None
+    min_len = max(1, min_length)
+    max_len = length - 1
+    if max_length > 0:
+        max_len = min(max_len, max_length)
+    if max_len < min_len:
+        return None
+    patch_len = int(torch.randint(min_len, max_len + 1, (), generator=generator).item())
     if zero_start:
         start = 0
     else:
-        start = int(torch.randint(0, length - 1, (), generator=generator).item())
-    max_end = length
-    if max_length > 0:
-        max_end = min(max_end, start + max_length)
-    if max_end <= start + 1:
-        return None
-    end = int(torch.randint(start + 1, max_end + 1, (), generator=generator).item())
-    if end - start >= length:
-        return None
+        start = int(torch.randint(0, length - patch_len + 1, (), generator=generator).item())
+    end = start + patch_len
     return start, end
 
 
 def stp_loss_fn(
     hidden_states: torch.Tensor,
     attention_mask: torch.Tensor,
+    min_patch_length: int,
     max_patch_length: int,
     patch_times: int,
     zero_start: bool,
@@ -138,7 +145,7 @@ def stp_loss_fn(
     for b, length_value in enumerate(lengths):
         length = int(length_value)
         for _ in range(patch_times):
-            patch = sample_patch(length, max_patch_length, generator, zero_start)
+            patch = sample_patch(length, min_patch_length, max_patch_length, generator, zero_start)
             if patch is None:
                 continue
             start, end = patch
@@ -233,6 +240,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--warmup_ratio", type=float, default=0.10)
     parser.add_argument("--stp_lambda", type=float, default=1.0)
     parser.add_argument("--patch_times", type=int, default=1)
+    parser.add_argument("--min_patch_length", type=int, default=1, help="Minimum patch length.")
     parser.add_argument("--max_patch_length", type=int, default=256, help="Maximum patch length. <=0 means no cap.")
     parser.add_argument("--patch_zero_start", action="store_true", help="Always start the random patch at token 0.")
     parser.add_argument("--length_norm", choices=["none", "sqrt", "linear"], default="none")
@@ -314,7 +322,8 @@ def main() -> None:
         f"rows={len(dataset)} world={world} batch_size={args.batch_size} effective_batch={effective_batch} "
         f"accum_steps={accum_steps} updates_per_epoch={updates_per_epoch} total_steps={total_steps} "
         f"max_steps={args.max_steps or 'none'} stp_lambda={args.stp_lambda} "
-        f"patch_times={args.patch_times} max_patch_length={args.max_patch_length} "
+        f"patch_times={args.patch_times} min_patch_length={args.min_patch_length} "
+        f"max_patch_length={args.max_patch_length} "
         f"patch_zero_start={args.patch_zero_start} length_norm={args.length_norm}"
     )
 
@@ -347,6 +356,7 @@ def main() -> None:
             stp_loss, stp_metrics = stp_loss_fn(
                 outputs.hidden_states[-1],
                 attention_mask,
+                args.min_patch_length,
                 args.max_patch_length,
                 args.patch_times,
                 args.patch_zero_start,
