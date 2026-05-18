@@ -94,6 +94,16 @@ def span_repr(hidden: torch.Tensor, start: int, end: int) -> torch.Tensor:
     return end_state - hidden[start - 1]
 
 
+def normalize_span_repr(x: torch.Tensor, length: int, mode: str) -> torch.Tensor:
+    if mode == "none":
+        return x
+    if mode == "sqrt":
+        return x / math.sqrt(max(1, length))
+    if mode == "linear":
+        return x / max(1, length)
+    raise ValueError(f"unknown length_norm: {mode}")
+
+
 def sample_patch(length: int, max_length: int, generator: torch.Generator, zero_start: bool) -> tuple[int, int] | None:
     if length < 2:
         return None
@@ -118,6 +128,7 @@ def stp_loss_fn(
     max_patch_length: int,
     patch_times: int,
     zero_start: bool,
+    length_norm: str,
     generator: torch.Generator,
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
     sources: list[torch.Tensor] = []
@@ -131,12 +142,14 @@ def stp_loss_fn(
             if patch is None:
                 continue
             start, end = patch
+            patch_length = end - start
+            rest_length = length - patch_length
             before = span_repr(hidden_states[b], 0, start)
             patch_repr = span_repr(hidden_states[b], start, end)
             after = span_repr(hidden_states[b], end, length)
-            sources.append(before + after)
-            targets.append(patch_repr)
-            patch_lengths.append(float(end - start))
+            sources.append(normalize_span_repr(before + after, rest_length, length_norm))
+            targets.append(normalize_span_repr(patch_repr, patch_length, length_norm))
+            patch_lengths.append(float(patch_length))
     if not sources:
         zero = hidden_states.float().sum() * 0.0
         metrics = {
@@ -222,6 +235,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--patch_times", type=int, default=1)
     parser.add_argument("--max_patch_length", type=int, default=256, help="Maximum patch length. <=0 means no cap.")
     parser.add_argument("--patch_zero_start", action="store_true", help="Always start the random patch at token 0.")
+    parser.add_argument("--length_norm", choices=["none", "sqrt", "linear"], default="none")
     parser.add_argument("--dtype", choices=["bf16", "fp32"], default="bf16")
     parser.add_argument("--attn_implementation", choices=["eager", "sdpa", "flash_attention_2", "flash_attention_3"], default="sdpa")
     parser.add_argument("--compile", action="store_true")
@@ -301,7 +315,7 @@ def main() -> None:
         f"accum_steps={accum_steps} updates_per_epoch={updates_per_epoch} total_steps={total_steps} "
         f"max_steps={args.max_steps or 'none'} stp_lambda={args.stp_lambda} "
         f"patch_times={args.patch_times} max_patch_length={args.max_patch_length} "
-        f"patch_zero_start={args.patch_zero_start}"
+        f"patch_zero_start={args.patch_zero_start} length_norm={args.length_norm}"
     )
 
     global_step = 0
@@ -336,6 +350,7 @@ def main() -> None:
                 args.max_patch_length,
                 args.patch_times,
                 args.patch_zero_start,
+                args.length_norm,
                 patch_generator,
             )
             loss = (ar_loss + args.stp_lambda * stp_loss) / accum_steps

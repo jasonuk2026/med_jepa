@@ -684,6 +684,7 @@ python train_stp_jepa.py \
 --global_batch_size 16 \
 --stp_lambda 1.0 \
 --max_patch_length 256 \
+--length_norm sqrt \
 --patch_times 1 \
 --epochs 1 \
 --max_steps 200 \
@@ -709,6 +710,7 @@ torchrun --standalone --nproc_per_node=4 train_stp_jepa.py \
 --global_batch_size 128 \
 --stp_lambda 1.0 \
 --max_patch_length 256 \
+--length_norm sqrt \
 --patch_times 1 \
 --epochs 1 \
 --lr 2e-4 \
