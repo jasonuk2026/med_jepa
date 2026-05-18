@@ -666,6 +666,61 @@ torchrun --standalone --nproc_per_node=4 train_chunk_jepa.py \
 --save_every_epoch
 ```
 
+STP-style JEPA on the no-EOT pretraining data. This follows the `llm-jepa`
+`linear=random_span` idea: run the full sequence once, sample a random patch,
+represent spans with hidden-state differences, and align `before + after` to
+`patch` with cosine loss.
+
+Single-GPU short test:
+
+```bash
+python train_stp_jepa.py \
+--model_name Qwen/Qwen3-0.6B-Base \
+--train_parquet data/pretrain/train_no_eot.parquet \
+--output_dir experiments/qwen3_0p6b_base_stp_jepa_no_eot_patch256_lambda1_1gpu_test \
+--attn_implementation flash_attention_3 \
+--compile \
+--batch_size 4 \
+--global_batch_size 16 \
+--stp_lambda 1.0 \
+--max_patch_length 256 \
+--patch_times 1 \
+--epochs 1 \
+--max_steps 200 \
+--lr 2e-4 \
+--warmup_ratio 0.10 \
+--dtype bf16 \
+--num_workers 4 \
+--prefetch_factor 4 \
+--persistent_workers \
+--log_steps 1 \
+--save_every_epoch
+```
+
+```bash
+./run_sm.sh -j pretrain_base_stp_jepa_no_eot_patch256_lambda1_4gpu_full_epoch -n 4 -c 16 -m 100G -t 24:00:00 \
+torchrun --standalone --nproc_per_node=4 train_stp_jepa.py \
+--model_name Qwen/Qwen3-0.6B-Base \
+--train_parquet data/pretrain/train_no_eot.parquet \
+--output_dir experiments/qwen3_0p6b_base_stp_jepa_no_eot_patch256_lambda1_4gpu_full_epoch \
+--attn_implementation flash_attention_3 \
+--compile \
+--batch_size 8 \
+--global_batch_size 128 \
+--stp_lambda 1.0 \
+--max_patch_length 256 \
+--patch_times 1 \
+--epochs 1 \
+--lr 2e-4 \
+--warmup_ratio 0.10 \
+--dtype bf16 \
+--num_workers 4 \
+--prefetch_factor 4 \
+--persistent_workers \
+--log_steps 100 \
+--save_every_epoch
+```
+
 ## Build evaluation data
 
 Evaluation labels are generated from the MEDS timeline with ETHOS-style task logic. For
@@ -1146,6 +1201,6 @@ torchrun --standalone --nproc_per_node=4 eval_classifier.py \
 ## Smoke tests
 
 ```bash
-python -m py_compile med_jepa_common.py build_pretrain_data.py train_jepa.py train_chunk_jepa.py build_eval_data.py eval_classifier.py smoke_test.py
+python -m py_compile med_jepa_common.py build_pretrain_data.py train_jepa.py train_chunk_jepa.py train_stp_jepa.py build_eval_data.py eval_classifier.py smoke_test.py
 python smoke_test.py
 ```
