@@ -101,6 +101,11 @@ def pool_hidden(
     if pooling in {"last_token", "appended_token"}:
         idx = valid.long().sum(dim=1).clamp_min(1) - 1
         return hidden[torch.arange(hidden.size(0), device=hidden.device), idx]
+    if pooling == "last_minus_first":
+        last_idx = valid.long().sum(dim=1).clamp_min(1) - 1
+        first_idx = torch.zeros_like(last_idx)
+        rows = torch.arange(hidden.size(0), device=hidden.device)
+        return hidden[rows, last_idx] - hidden[rows, first_idx]
     non_eot = valid & (input_ids != eot_token_id)
     if pooling == "last_non_eot":
         fallback = valid.long().sum(dim=1).clamp_min(1) - 1
@@ -243,6 +248,7 @@ def parse_args() -> argparse.Namespace:
             "mean_eot",
             "last_token",
             "appended_token",
+            "last_minus_first",
             "mean_all",
             "last_non_eot",
             "mean_non_eot",
